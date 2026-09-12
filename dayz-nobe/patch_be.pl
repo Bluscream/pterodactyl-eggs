@@ -32,9 +32,13 @@ my $target = $ARGV[0] // "DayZServer";
 # }
 
 # --- 2. Patch Binary Memory/Signatures ---
-exit 0 unless -f $target;
+unless (-f $target) {
+    print STDERR "[BattlEye-Patcher] ERROR: Target binary '$target' not found. Server will start UNPATCHED.\n";
+    exit 1;
+}
 
-open(my $fh, "+<:raw", $target) or exit 0;
+open(my $fh, "+<:raw", $target)
+    or do { print STDERR "[BattlEye-Patcher] ERROR: Cannot open '$target' for writing: $!\n"; exit 1; };
 read($fh, my $buf, -s $target);
 
 # Check if already patched (quick check for Linux)

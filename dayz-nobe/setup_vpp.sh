@@ -32,6 +32,7 @@ else
     echo -n "${ADMIN_PASSWORD}" > "${PASS_FILE}"
     echo "[Security] Generated persistent Admin & RCON Passphrase: ${ADMIN_PASSWORD}"
 fi
+chmod 600 "${PASS_FILE}" 2>/dev/null || true
 
 # 2. Sync BattlEye RCON Configuration (BEServer_x64.cfg)
 mkdir -p "${BATTLEYE_DIR}"
@@ -44,6 +45,20 @@ RestrictRCon 0
 RConPort ${RCON_PORT}
 EOF
 echo "[RCON] Configured BattlEye RCON on port ${RCON_PORT} (RestrictRCon 0)."
+
+# 2.1 Make the resolved passphrase authoritative in serverDZ.cfg
+# The panel's config parser rewrites passwordAdmin from the (possibly empty) ADMIN_PASSWORD
+# egg variable before every boot. This runs after the parser, so the value written here wins
+# and serverDZ.cfg, BEServer_x64.cfg and the VPP credentials all agree.
+SERVER_CFG="${SERVER_ROOT}/serverDZ.cfg"
+if [ -f "${SERVER_CFG}" ]; then
+    if grep -q '^[[:space:]]*passwordAdmin[[:space:]]*=' "${SERVER_CFG}"; then
+        sed -i "s|^[[:space:]]*passwordAdmin[[:space:]]*=.*|passwordAdmin = \"${ADMIN_PASSWORD}\";|" "${SERVER_CFG}"
+    else
+        echo "passwordAdmin = \"${ADMIN_PASSWORD}\";" >> "${SERVER_CFG}"
+    fi
+    echo "[Config] Synced passwordAdmin in serverDZ.cfg with the resolved passphrase."
+fi
 
 # 3. VPP Admin Tools Setup
 if [ "${ENABLE_VPP_ADMIN}" = "1" ]; then
@@ -89,10 +104,16 @@ fi
 # 4. Server-Side Custom Init Auto-Installer (init.c)
 if [ -f "${MISSION_INIT}" ]; then
     if [ -f "${SERVER_ROOT}/dayz_init_server.c" ]; then
-        if ! grep -q "CustomMission" "${MISSION_INIT}"; then
-            echo "[Server-Scripts] Installing CustomMission into init.c..."
+        # Marker must be unique to dayz_init_server.c. Do NOT grep for "CustomMission" --
+        # vanilla mpmissions init.c already declares "class CustomMission: MissionServer",
+        # so that guard matches on an untouched install and the custom init never lands.
+        if ! grep -q "DAYZ_NOBE_CUSTOM_INIT" "${MISSION_INIT}"; then
+            echo "[Server-Scripts] Installing custom server-side init.c..."
+            cp "${MISSION_INIT}" "${MISSION_INIT}.bak.$(date +%Y%m%d%H%M%S)"
             cp "${SERVER_ROOT}/dayz_init_server.c" "${MISSION_INIT}"
-            echo "[Server-Scripts] Successfully applied custom init.c from dayz_init_server.c."
+            echo "[Server-Scripts] Applied dayz_init_server.c (previous init.c backed up alongside it)."
+        else
+            echo "[Server-Scripts] Custom init.c already installed."
         fi
     fi
 fi

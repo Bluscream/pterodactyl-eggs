@@ -58,7 +58,7 @@
     },
     "scripts": {
         "installation": {
-            "script": "#!/bin/bash\r\n\r\n## File: Pterodactyl DayZ Standalone (No-BE Patched) Egg\r\n## Image: 'ghcr.io/parkervcp/installers:debian'\r\n\r\ncd /tmp\r\nmkdir -p /mnt/server/steamcmd /mnt/server/steamapps\r\ncurl -sSL -o steamcmd.tar.gz https://steamcdn-a.akamaihd.net/client/installer/steamcmd_linux.tar.gz\r\ntar -xzvf steamcmd.tar.gz -C /mnt/server/steamcmd\r\ncd /mnt/server/steamcmd\r\n\r\nchown -R root:root /mnt\r\nexport HOME=/mnt/server\r\n\r\n# Install game server using SteamCMD\r\n./steamcmd.sh +force_install_dir /mnt/server \"+login \\\"${STEAM_USER}\\\" \\\"${STEAM_PASS}\\\"\" +app_update ${STEAMCMD_APPID} ${STEAMCMD_EXTRA_FLAGS} validate +quit\r\n\r\n# Set up 32 and 64 bit libraries\r\nmkdir -p /mnt/server/.steam/sdk{32,64}\r\ncp -v linux32/steamclient.so /mnt/server/.steam/sdk32/steamclient.so\r\ncp -v linux64/steamclient.so /mnt/server/.steam/sdk64/steamclient.so\r\n\r\n# Download / deliver egg companion scripts (patch_be.pl, setup_vpp.sh, dayz_init_server.c)\r\necho \"Downloading egg helper scripts from repository...\"\r\nRAW_BASE=\"https://raw.githubusercontent.com/bluscream/pterodactyl-eggs/master/dayz-nobe\"\r\ncurl -sSL -o /mnt/server/patch_be.pl \"${RAW_BASE}/patch_be.pl\" || true\r\ncurl -sSL -o /mnt/server/setup_vpp.sh \"${RAW_BASE}/setup_vpp.sh\" || true\r\ncurl -sSL -o /mnt/server/dayz_init_server.c \"${RAW_BASE}/dayz_init_server.c\" || true\r\nchmod +x /mnt/server/patch_be.pl /mnt/server/setup_vpp.sh 2>/dev/null || true\r\n\r\n## install end\r\necho \"-----------------------------------------\"\r\necho \"Installation completed...\"\r\necho \"-----------------------------------------\"",
+            "script": "#!/bin/bash\r\n\r\n## File: Pterodactyl DayZ Standalone (No-BE Patched) Egg\r\n## Image: 'ghcr.io/parkervcp/installers:debian'\r\n\r\ncd /tmp\r\nmkdir -p /mnt/server/steamcmd /mnt/server/steamapps\r\ncurl -sSL -o steamcmd.tar.gz https://steamcdn-a.akamaihd.net/client/installer/steamcmd_linux.tar.gz\r\ntar -xzvf steamcmd.tar.gz -C /mnt/server/steamcmd\r\ncd /mnt/server/steamcmd\r\n\r\nchown -R root:root /mnt\r\nexport HOME=/mnt/server\r\n\r\n# Install game server using SteamCMD\r\n./steamcmd.sh +force_install_dir /mnt/server \"+login \\\"${STEAM_USER}\\\" \\\"${STEAM_PASS}\\\"\" +app_update ${STEAMCMD_APPID} ${STEAMCMD_EXTRA_FLAGS} validate +quit\r\n\r\n# Set up 32 and 64 bit libraries\r\nmkdir -p /mnt/server/.steam/sdk{32,64}\r\ncp -v linux32/steamclient.so /mnt/server/.steam/sdk32/steamclient.so\r\ncp -v linux64/steamclient.so /mnt/server/.steam/sdk64/steamclient.so\r\n\r\n# Download / deliver egg companion scripts (patch_be.pl, setup_vpp.sh, dayz_init_server.c)\n# Pinned to an immutable commit SHA so reinstalls are reproducible and never pick up\n# whatever happens to be on the branch that day. Bump RAW_REF when the helpers change.\nRAW_REF=\"__PIN__\"\nRAW_BASE=\"https://raw.githubusercontent.com/bluscream/pterodactyl-eggs/${RAW_REF}/dayz-nobe\"\n\nfetch() {\n    # --fail is mandatory: without it curl exits 0 on a 404 and writes the\n    # \"404: Not Found\" HTML/text body straight into the destination file.\n    echo \"Fetching ${1}...\"\n    curl --fail -sSL -o \"/mnt/server/${1}.tmp\" \"${RAW_BASE}/${1}\" || {\n        echo \"FATAL: could not download ${1} from ${RAW_BASE}\"\n        rm -f \"/mnt/server/${1}.tmp\"\n        exit 1\n    }\n    mv \"/mnt/server/${1}.tmp\" \"/mnt/server/${1}\"\n}\n\nfetch patch_be.pl\nfetch setup_vpp.sh\nfetch dayz_init_server.c\nchmod +x /mnt/server/patch_be.pl /mnt/server/setup_vpp.sh\n\n## install end\r\necho \"-----------------------------------------\"\r\necho \"Installation completed...\"\r\necho \"-----------------------------------------\"",
             "container": "ghcr.io/parkervcp/installers:debian",
             "entrypoint": "/bin/bash"
         }
@@ -146,7 +146,7 @@
         },
         {
             "name": "Admin Password",
-            "description": "Password to log in as an admin on the server.",
+            "description": "Admin/RCON passphrase, shared by serverDZ.cfg passwordAdmin, BattlEye RCON and VPPAdminTools. Leave blank to have setup_vpp.sh generate one once and persist it to .admin_secret; the resolved value is written back into serverDZ.cfg at boot.",
             "env_variable": "ADMIN_PASSWORD",
             "default_value": "",
             "user_viewable": true,
@@ -396,9 +396,9 @@
         },
         {
             "name": "Client Connect Port",
-            "description": "Port clients connect with (clientPort). Defaults to 2304.",
+            "description": "Value written to clientPort in serverDZ.cfg. Must NOT equal RCON_PORT (2304) -- they previously both defaulted to 2304. 2302=game, 2303=clientPort, 2304=BE RCon, 2305=steamQueryPort.",
             "env_variable": "CLIENT_PORT",
-            "default_value": "2304",
+            "default_value": "2303",
             "user_viewable": true,
             "user_editable": true,
             "rules": "required|integer",

@@ -1,3 +1,4 @@
+// DAYZ_NOBE_CUSTOM_INIT v1 -- unique marker used by setup_vpp.sh to detect installation
 void main()
 {
 	//INIT ECONOMY--------------------------------------

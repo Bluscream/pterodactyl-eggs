@@ -11,7 +11,6 @@ A Pterodactyl Egg for hosting DayZ Standalone Dedicated Servers with an automate
 
 ## Files
 - `egg-dayz-nobe.json`: Complete Pterodactyl v2 Egg ready for import.
-- `patch_be.pl`: Universal binary patcher for Linux container runtime environments (zero additional dependencies).
-- `patch_be.py`: Standalone Python 3 alternative binary patcher.
+- `patch_be.pl`: Binary patcher. Perl, not Python -- the runtime image `ghcr.io/parkervcp/games:dayz` ships `/usr/bin/perl` and has no `python3`.
 - `setup_vpp.sh`: Automated mod keys installer, BattlEye RCON configuration, and SuperAdmin provisioning script.
-- `dayz_init_server.c`: Reference mission init script providing player connection greetings and server-side utilities.
+- `dayz_init_server.c`: Custom mission init installed over `mpmissions/.../init.c` on first boot (guarded by the `DAYZ_NOBE_CUSTOM_INIT` marker; the original is backed up).
