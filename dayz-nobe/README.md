@@ -7,10 +7,11 @@ A Pterodactyl Egg for hosting DayZ Standalone Dedicated Servers with an automate
 - **Dual AppID Support**:
   - `223350`: DayZ Standalone Release Dedicated Server (requires authenticated Steam account).
   - `1042420`: DayZ Experimental Dedicated Server (anonymous download).
-- **Zero Manual Re-patching**: The embedded `patch_be.py` script automatically runs on every container startup and after SteamCMD updates/file validations.
+- **Zero Manual Re-patching**: The embedded `patch_be.pl` script automatically runs on every container startup and after SteamCMD updates/file validations.
 
 ## Files
 - `egg-dayz-nobe.json`: Complete Pterodactyl v2 Egg ready for import.
-- `patch_be.py`: Universal standalone Linux/Windows binary patcher.
+- `patch_be.pl`: Universal binary patcher for Linux container runtime environments (zero additional dependencies).
+- `patch_be.py`: Standalone Python 3 alternative binary patcher.
 - `setup_vpp.sh`: Automated mod keys installer, BattlEye RCON configuration, and SuperAdmin provisioning script.
 - `dayz_init_server.c`: Reference mission init script providing player connection greetings and server-side utilities.
