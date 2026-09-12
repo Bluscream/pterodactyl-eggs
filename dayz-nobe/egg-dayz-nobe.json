@@ -325,9 +325,9 @@
         },
         {
             "name": "[Advanced] Extra Startup Parameters",
-            "description": "Extra DayZ server parameters. -nobe is redundant here: patch_be.pl already prevents BattlEye from initializing. Adding it changes nothing about RCON, which is unavailable on a patched binary either way.",
+            "description": "Extra DayZ server parameters. -nobe matches the ENABLE_BATTLEYE=0 default and is redundant-but-explicit: patch_be.pl already stops BattlEye loading. Remove both -nobe and patch_be.pl if you want BattlEye and its RCON back.",
             "env_variable": "STARTUP_PARAMS",
-            "default_value": "-doLogs -limitFPS=120 -nobe",
+            "default_value": "-doLogs -adminLog -limitFPS=120 -nobe",
             "user_viewable": true,
             "user_editable": true,
             "rules": "nullable|string",
@@ -395,7 +395,7 @@
         },
         {
             "name": "RCON Port",
-            "description": "Port used for BattlEye RCON remote administration (RConPort in BEServer_x64.cfg). Defaults to 2304.",
+            "description": "BattlEye RCON port. Unused while the server is patched (BE never loads). Kept so an unpatched server has a sane default.",
             "env_variable": "RCON_PORT",
             "default_value": "2304",
             "user_viewable": true,
@@ -405,9 +405,9 @@
         },
         {
             "name": "Enable BattlEye (serverDZ.cfg battleye)",
-            "description": "Writes battleye=<n> to serverDZ.cfg. NOTE: while patch_be.pl is in the startup command this setting is inert -- the patch stops BattlEye initializing entirely (verified: zero \"BattlEye\" lines in the RPT after patching, and no response to a BE RCON login packet). BattlEye RCON therefore does NOT work on a patched server; bercon-cli cannot connect. Use VPPAdminTools / the init.c slash commands for admin instead. Set to 1 and remove patch_be.pl from the startup command if you need RCON, accepting that global-ban and VAC kicks come back.",
+            "description": "Default 0. patch_be.pl prevents BattlEye from initializing at all, so BE cannot enforce anything AND BE RCON cannot work (nothing binds RCON_PORT; bercon-cli times out). Leaving battleye=1 would just be a config nothing reads. Set to 1 ONLY together with removing patch_be.pl from the startup command, which restores RCON along with global-ban and VAC kicks.",
             "env_variable": "ENABLE_BATTLEYE",
-            "default_value": "1",
+            "default_value": "0",
             "user_viewable": true,
             "user_editable": true,
             "rules": "required|boolean",

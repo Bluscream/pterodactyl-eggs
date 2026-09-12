@@ -42,16 +42,24 @@ fi
 chmod 600 "${PASS_FILE}" 2>/dev/null || true
 
 # 2. Sync BattlEye RCON Configuration (BEServer_x64.cfg)
-mkdir -p "${BATTLEYE_DIR}"
-RCON_FILE="${BATTLEYE_DIR}/BEServer_x64.cfg"
-RCON_PORT="${RCON_PORT:-2304}"
-cat <<EOF > "${RCON_FILE}"
-// BattlEye Server Configuration
+# Only meaningful when BattlEye actually initializes. patch_be.pl prevents that, so on a
+# patched server BE never loads, nothing binds RCON_PORT and BE RCON clients time out --
+# writing a BEServer_x64.cfg there would just be a config that nothing ever reads.
+if [ "${ENABLE_BATTLEYE}" = "1" ]; then
+    mkdir -p "${BATTLEYE_DIR}"
+    RCON_FILE="${BATTLEYE_DIR}/BEServer_x64.cfg"
+    RCON_PORT="${RCON_PORT:-2304}"
+    cat <<EOF > "${RCON_FILE}"
 RConPassword ${ADMIN_PASSWORD}
 RestrictRCon 0
 RConPort ${RCON_PORT}
 EOF
-echo "[RCON] Configured BattlEye RCON on port ${RCON_PORT} (RestrictRCon 0)."
+    echo "[RCON] Configured BattlEye RCON on port ${RCON_PORT} (RestrictRCon 0)."
+    echo "[RCON] NOTE: RCON only works if patch_be.pl is NOT in the startup command."
+else
+    echo "[RCON] BattlEye disabled (ENABLE_BATTLEYE=0) -- skipping BEServer_x64.cfg."
+    echo "[RCON] Admin access: VPPAdminTools in-game and the init.c slash commands."
+fi
 
 # 2.1 Make the resolved passphrase authoritative in serverDZ.cfg
 # The panel's config parser rewrites passwordAdmin from the (possibly empty) ADMIN_PASSWORD
