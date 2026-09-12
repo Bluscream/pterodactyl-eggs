@@ -4,30 +4,32 @@ use warnings;
 
 my $target = $ARGV[0] // "DayZServer";
 
-# --- 1. Enforce No-BE in serverDZ.cfg ---
-if (-f "serverDZ.cfg") {
-    open(my $in, "<", "serverDZ.cfg");
-    my @lines = <$in>;
-    close($in);
-
-    my $found_be = 0;
-    my $found_sig = 0;
-    for (@lines) {
-        if (/^\s*battleye\s*=/i) {
-            $_ = "battleye = 0;\n";
-            $found_be = 1;
-        }
-        if (/^\s*verifySignatures\s*=/i) {
-            # Ensure signatures don't conflict with patched clients
-            $found_sig = 1;
-        }
-    }
-    push @lines, "battleye = 0;\n" unless $found_be;
-
-    open(my $out, ">", "serverDZ.cfg");
-    print $out @lines;
-    close($out);
-}
+# --- 1. Enforce/Respect BattlEye Setting in serverDZ.cfg ---
+# NOTE: Commented out because Pterodactyl's egg configuration parser already
+# natively parses and manages serverDZ.cfg variables (including battleye = {{env.ENABLE_BATTLEYE}};).
+# Retained as a comment in case patch_be.pl is executed standalone outside of Pterodactyl.
+#
+# if (-f "serverDZ.cfg") {
+#     my $enable_be = $ENV{ENABLE_BATTLEYE} // "0";
+#     my $be_val = ($enable_be eq "1") ? 1 : 0;
+#
+#     open(my $in, "<", "serverDZ.cfg");
+#     my @lines = <$in>;
+#     close($in);
+#
+#     my $found_be = 0;
+#     for (@lines) {
+#         if (/^\s*battleye\s*=/i) {
+#             $_ = "battleye = $be_val;\n";
+#             $found_be = 1;
+#         }
+#     }
+#     push @lines, "battleye = $be_val;\n" unless $found_be;
+#
+#     open(my $out, ">", "serverDZ.cfg");
+#     print $out @lines;
+#     close($out);
+# }
 
 # --- 2. Patch Binary Memory/Signatures ---
 exit 0 unless -f $target;

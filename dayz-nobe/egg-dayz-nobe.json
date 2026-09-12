@@ -14,8 +14,7 @@
     "docker_images": {
         "ghcr.io/parkervcp/games:dayz": "ghcr.io/parkervcp/games:dayz"
     },
-    "file_denylist": [],
-    "startup": "perl ./patch_be.pl ./{{SERVER_BINARY}} 2>/dev/null || true; .\\/{{SERVER_BINARY}} -ip=0.0.0.0 -port={{SERVER_PORT}} -profiles=.\\/serverprofile -BEpath=.\\/ -config=serverDZ.cfg -mod=\"{{CLIENT_MODS}}\" -serverMod=\"{{SERVERMODS}}\" {{STARTUP_PARAMS}}",
+    "startup": "perl ./patch_be.pl ./{{SERVER_BINARY}} 2>/dev/null || true; bash ./setup_vpp.sh 2>/dev/null || true; .\\/{{SERVER_BINARY}} -ip=0.0.0.0 -port={{SERVER_PORT}} -profiles=.\\/serverprofile -BEpath=.\\/ -config=serverDZ.cfg -mod=\"{{CLIENT_MODS}}\" -serverMod=\"{{SERVERMODS}}\" {{STARTUP_PARAMS}}",
     "config": {
         "files": {
             "serverDZ.cfg": {
@@ -36,8 +35,18 @@
                     "serverTimeAcceleration": "serverTimeAcceleration = {{env.TIME_MULT}};",
                     "serverNightTimeAcceleration": "serverNightTimeAcceleration = {{env.NIGHT_MULT}};",
                     "serverTimePersistent": "serverTimePersistent = {{env.PERSISTENT_TIME}};",
-                    "battleye =": "battleye = 0;",
-                    "allowedFilePatching": "allowedFilePatching = {{env.ALLOWED_FILE_PATCHING}};"
+                    "battleye =": "battleye = {{env.ENABLE_BATTLEYE}};",
+                    "allowedFilePatching": "allowedFilePatching = {{env.ALLOWED_FILE_PATCHING}};",
+                    "steamQueryPort": "steamQueryPort = {{env.STEAM_QUERY_PORT}};",
+                    "clientPort": "clientPort = {{env.CLIENT_PORT}};"
+                }
+            },
+            "battleye/BEServer_x64.cfg": {
+                "parser": "file",
+                "find": {
+                    "RConPassword": "RConPassword {{env.ADMIN_PASSWORD}}",
+                    "RestrictRCon": "RestrictRCon 0",
+                    "RConPort": "RConPort {{env.RCON_PORT}}"
                 }
             }
         },
@@ -157,9 +166,9 @@
         },
         {
             "name": "Additional Mods",
-            "description": "A semicolon-separated list of mod folders to load from the root directory. Useful for loading manually uploaded mods. Any mods in this list that are in \"@workshopID\" form will also be included in Automatic Updates (if enabled). NO capital letters, spaces, or folders starting with a number! (ex. myMod;@123456789;@987654321;etc;)",
+            "description": "A semicolon-separated list of mod folders to load from the root directory. Useful for loading manually uploaded mods. Any mods in this list that are in \"@workshopID\" form will also be included in Automatic Updates (if enabled). NO capital letters, spaces, or folders starting with a number! (ex. @1559212036;@1879460278;)",
             "env_variable": "MODIFICATIONS",
-            "default_value": "",
+            "default_value": "@1559212036;@1879460278;",
             "user_viewable": true,
             "user_editable": true,
             "rules": "nullable|string",
@@ -340,6 +349,66 @@
             "description": "Allow or disallow clients connecting with the -filePatching startup flag (0 = Disallowed, 1 = Allowed). If clients launch with -filePatching enabled, the server must have this set to 1.",
             "env_variable": "ALLOWED_FILE_PATCHING",
             "default_value": "1",
+            "user_viewable": true,
+            "user_editable": true,
+            "rules": "required|boolean",
+            "field_type": "text"
+        },
+        {
+            "name": "Enable VPPAdminTools & CF",
+            "description": "Automatically downloads, installs, and configures VanillaPlusPlus Admin Tools (Workshop: 1879460278) and Community Framework (CF Workshop: 1559212036), copies server keys, and registers admin permissions.",
+            "env_variable": "ENABLE_VPP_ADMIN",
+            "default_value": "1",
+            "user_viewable": true,
+            "user_editable": true,
+            "rules": "required|boolean",
+            "field_type": "text"
+        },
+        {
+            "name": "VPP SuperAdmin SteamID64s",
+            "description": "Comma or space separated SteamID64s to automatically grant SuperAdmin credentials in VPPAdminTools permissions.",
+            "env_variable": "VPP_SUPERADMINS",
+            "default_value": "76561198022446661",
+            "user_viewable": true,
+            "user_editable": true,
+            "rules": "nullable|string",
+            "field_type": "text"
+        },
+        {
+            "name": "Steam Query Port",
+            "description": "Port used by Steam and DayZ SA Launcher to query server info (A2S_INFO). Bohemia default is 2305.",
+            "env_variable": "STEAM_QUERY_PORT",
+            "default_value": "2305",
+            "user_viewable": true,
+            "user_editable": true,
+            "rules": "required|integer",
+            "field_type": "text"
+        },
+        {
+            "name": "Client Connect Port",
+            "description": "Port clients connect with (clientPort). Defaults to 2304.",
+            "env_variable": "CLIENT_PORT",
+            "default_value": "2304",
+            "user_viewable": true,
+            "user_editable": true,
+            "rules": "required|integer",
+            "field_type": "text"
+        },
+        {
+            "name": "RCON Port",
+            "description": "Port used for BattlEye RCON remote administration (RConPort in BEServer_x64.cfg).",
+            "env_variable": "RCON_PORT",
+            "default_value": "2304",
+            "user_viewable": true,
+            "user_editable": true,
+            "rules": "required|integer",
+            "field_type": "text"
+        },
+        {
+            "name": "Enable BattlEye (serverDZ.cfg battleye)",
+            "description": "Sets battleye = 1 or 0 in serverDZ.cfg. Set to 1 to enable BattlEye server library and RCON; set to 0 to completely disable BattlEye engine initialization.",
+            "env_variable": "ENABLE_BATTLEYE",
+            "default_value": "0",
             "user_viewable": true,
             "user_editable": true,
             "rules": "required|boolean",
