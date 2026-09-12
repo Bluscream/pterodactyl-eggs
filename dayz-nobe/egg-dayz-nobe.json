@@ -35,7 +35,8 @@
                     "lightingConfig": "lightingConfig = {{env.LIGHTING_CONFIG}};",
                     "serverTimeAcceleration": "serverTimeAcceleration = {{env.TIME_MULT}};",
                     "serverNightTimeAcceleration": "serverNightTimeAcceleration = {{env.NIGHT_MULT}};",
-                    "serverTimePersistent": "serverTimePersistent = {{env.PERSISTENT_TIME}};"
+                    "serverTimePersistent": "serverTimePersistent = {{env.PERSISTENT_TIME}};",
+                    "battleye =": "battleye = 0;"
                 }
             }
         },
