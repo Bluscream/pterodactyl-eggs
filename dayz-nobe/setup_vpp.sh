@@ -37,10 +37,25 @@ MISSION_INIT="${SERVER_ROOT}/mpmissions/${MISSION_NAME}/init.c"
 #                   The response may be plain text or ASF's JSON; both are handled.
 WORKSHOP_APPID="221100"
 
+# Both settings also work as files in the server root, so a panel that still has an older
+# egg imported needs no re-import: Pterodactyl's application API cannot import or edit eggs
+# (POST to the eggs endpoint answers 405), but any file can be dropped in with `ptero write`.
+#   .steam_guard     - a one-shot code. Consumed and deleted after use, since it is single-use.
+#   .steam_guard_url - endpoint returning a fresh code.
+GUARD_FILE="${SERVER_ROOT}/.steam_guard"
+GUARD_URL_FILE="${SERVER_ROOT}/.steam_guard_url"
+
 steam_guard_code() {
     if [ -n "${STEAM_GUARD}" ]; then
         echo "${STEAM_GUARD}"
         return 0
+    fi
+    if [ -f "${GUARD_FILE}" ] && [ -s "${GUARD_FILE}" ]; then
+        tr -d ' \r\n' < "${GUARD_FILE}"
+        return 0
+    fi
+    if [ -z "${STEAM_GUARD_URL}" ] && [ -f "${GUARD_URL_FILE}" ]; then
+        STEAM_GUARD_URL="$(tr -d ' \r\n' < "${GUARD_URL_FILE}")"
     fi
     [ -z "${STEAM_GUARD_URL}" ] && return 0
     # Extract the first 5-character alphanumeric token: matches ASF's {"Result":{"bot":
@@ -96,6 +111,13 @@ install_workshop_mods() {
         # A code is single-use; drop it so the next iteration relies on the new sentry.
         code=""
     done
+
+    # Never leave a stale one-shot code behind: it cannot work twice, and keeping it would
+    # make the next boot look like it had a code when it did not.
+    if [ -f "${GUARD_FILE}" ]; then
+        rm -f "${GUARD_FILE}"
+        echo "[Mods] Consumed and removed .steam_guard (single-use)."
+    fi
 }
 
 install_workshop_mods
