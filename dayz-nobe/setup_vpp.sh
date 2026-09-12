@@ -28,42 +28,48 @@ MISSION_INIT="${SERVER_ROOT}/mpmissions/${MISSION_NAME}/init.c"
 # to start because -mod names a directory that does not exist. We cannot patch the image,
 # so this retries the downloads ourselves, with a code, before the server is launched.
 #
-# STEAM_GUARD     - a one-shot code. Only needed until Steam trusts this machine: the first
-#                   successful login writes a sentry (Steam/config/ssfn*) into the server
-#                   volume and later logins need no code at all.
-# STEAM_GUARD_URL - optional endpoint returning a fresh code, for accounts where the sentry
-#                   keeps getting invalidated. Any ArchiSteamFarm 2FA endpoint works, e.g.
-#                   https://asf.host/api/bot/<bot>/twoFactorAuthentication/token?password=...
-#                   The response may be plain text or ASF's JSON; both are handled.
+# STEAM_2FA_CODE - a one-shot code. Only needed until Steam trusts this machine: the first
+#                  successful login writes a sentry (Steam/config/ssfn*) into the server
+#                  volume and later logins need no code at all.
+# STEAM_2FA_URL  - optional endpoint returning a fresh code, for accounts where the sentry
+#                  keeps getting invalidated. Any ArchiSteamFarm 2FA endpoint works, e.g.
+#                  https://asf.host/api/bot/<bot>/twoFactorAuthentication/token?password=...
+#                  The response may be plain text or ASF's JSON; both are handled.
+# The older STEAM_GUARD / STEAM_GUARD_URL names still work as fallbacks.
 WORKSHOP_APPID="221100"
 
 # Both settings also work as files in the server root, so a panel that still has an older
 # egg imported needs no re-import: Pterodactyl's application API cannot import or edit eggs
 # (POST to the eggs endpoint answers 405), but any file can be dropped in with `ptero write`.
-#   .steam_guard     - a one-shot code. Consumed and deleted after use, since it is single-use.
-#   .steam_guard_url - endpoint returning a fresh code.
-GUARD_FILE="${SERVER_ROOT}/.steam_guard"
-GUARD_URL_FILE="${SERVER_ROOT}/.steam_guard_url"
+#   .steam_2fa_code - a one-shot code. Consumed and deleted after use, since it is single-use.
+#   .steam_2fa_url  - endpoint returning a fresh code.
+# The older .steam_guard / .steam_guard_url names are still honoured.
+GUARD_FILE="${SERVER_ROOT}/.steam_2fa_code"
+GUARD_URL_FILE="${SERVER_ROOT}/.steam_2fa_url"
+[ ! -f "${GUARD_FILE}" ] && [ -f "${SERVER_ROOT}/.steam_guard" ] && GUARD_FILE="${SERVER_ROOT}/.steam_guard"
+[ ! -f "${GUARD_URL_FILE}" ] && [ -f "${SERVER_ROOT}/.steam_guard_url" ] && GUARD_URL_FILE="${SERVER_ROOT}/.steam_guard_url"
 
 steam_guard_code() {
-    if [ -n "${STEAM_GUARD}" ]; then
-        echo "${STEAM_GUARD}"
+    STEAM_2FA_CODE="${STEAM_2FA_CODE:-${STEAM_GUARD}}"
+    STEAM_2FA_URL="${STEAM_2FA_URL:-${STEAM_GUARD_URL}}"
+    if [ -n "${STEAM_2FA_CODE}" ]; then
+        echo "${STEAM_2FA_CODE}"
         return 0
     fi
     if [ -f "${GUARD_FILE}" ] && [ -s "${GUARD_FILE}" ]; then
         tr -d ' \r\n' < "${GUARD_FILE}"
         return 0
     fi
-    if [ -z "${STEAM_GUARD_URL}" ] && [ -f "${GUARD_URL_FILE}" ]; then
+    if [ -z "${STEAM_2FA_URL}" ] && [ -f "${GUARD_URL_FILE}" ]; then
         # This URL usually embeds an IPC password, so keep it owner-readable only. The panel
         # file manager can still read it -- treat it as a secret that lives on the server.
         chmod 600 "${GUARD_URL_FILE}" 2>/dev/null || true
-        STEAM_GUARD_URL="$(tr -d ' \r\n' < "${GUARD_URL_FILE}")"
+        STEAM_2FA_URL="$(tr -d ' \r\n' < "${GUARD_URL_FILE}")"
     fi
-    [ -z "${STEAM_GUARD_URL}" ] && return 0
+    [ -z "${STEAM_2FA_URL}" ] && return 0
     # Extract the first 5-character alphanumeric token: matches ASF's {"Result":{"bot":
     # {"Result":"ABC12"}}} as well as a bare code, without needing a JSON parser.
-    curl --fail -sSL --max-time 15 "${STEAM_GUARD_URL}" 2>/dev/null \
+    curl --fail -sSL --max-time 15 "${STEAM_2FA_URL}" 2>/dev/null \
         | grep -oE '[A-Z0-9]{5}' | head -1
 }
 
@@ -119,7 +125,7 @@ install_workshop_mods() {
     # make the next boot look like it had a code when it did not.
     if [ -f "${GUARD_FILE}" ]; then
         rm -f "${GUARD_FILE}"
-        echo "[Mods] Consumed and removed .steam_guard (single-use)."
+        echo "[Mods] Consumed and removed $(basename "${GUARD_FILE}") (single-use)."
     fi
 }
 
