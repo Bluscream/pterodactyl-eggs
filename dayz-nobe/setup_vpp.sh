@@ -169,20 +169,44 @@ for sid in $(echo "${SUPERADMIN_IDS}" | tr ',' ' '); do
 done
 echo "[Server-Scripts] Synced admin SteamID(s) to ${ADMINS_TXT} for server-side chat commands."
 
-# 4. Server-Side Custom Init Auto-Installer (init.c)
-# Installs sinipelto/dayz-scripts + custom mission server scripts
+# 4. Server-Side Custom Init Auto-Installer (sinipelto/dayz-scripts)
+# Dynamically installs sinipelto/dayz-scripts into the active mission's init.c.
+# If dayz_init_server.c is present, it is used; otherwise setup_vpp.sh fetches the upstream
+# init.c directly via curl from GitHub.
+SINIPELTO_RAW_URL="https://raw.githubusercontent.com/bluscream/pterodactyl-eggs/master/dayz-nobe/dayz_init_server.c"
+UPSTREAM_SINIPELTO_URL="https://raw.githubusercontent.com/sinipelto/dayz-scripts/master/init.c"
+
 if [ -f "${MISSION_INIT}" ]; then
+    SOURCE_INIT=""
     if [ -f "${SERVER_ROOT}/dayz_init_server.c" ]; then
-        # Install or update if dayz_init_server.c has changed
-        if ! grep -q "DAYZ_NOBE_CUSTOM_INIT" "${MISSION_INIT}" || ! cmp -s "${SERVER_ROOT}/dayz_init_server.c" "${MISSION_INIT}"; then
-            echo "[Server-Scripts] Installing/updating custom server-side init.c (sinipelto/dayz-scripts)..."
-            cp "${MISSION_INIT}" "${MISSION_INIT}.bak.$(date +%Y%m%d%H%M%S)" 2>/dev/null || true
-            cp "${SERVER_ROOT}/dayz_init_server.c" "${MISSION_INIT}"
-            echo "[Server-Scripts] Applied dayz_init_server.c to ${MISSION_INIT}."
+        SOURCE_INIT="${SERVER_ROOT}/dayz_init_server.c"
+    else
+        echo "[Server-Scripts] Fetching sinipelto/dayz-scripts from repository..."
+        if curl --fail -sSL -o "${SERVER_ROOT}/dayz_init_server.c.tmp" "${SINIPELTO_RAW_URL}" 2>/dev/null; then
+            mv "${SERVER_ROOT}/dayz_init_server.c.tmp" "${SERVER_ROOT}/dayz_init_server.c"
+            SOURCE_INIT="${SERVER_ROOT}/dayz_init_server.c"
+            echo "[Server-Scripts] Downloaded enhanced sinipelto/dayz-scripts."
+        elif curl --fail -sSL -o "${SERVER_ROOT}/dayz_init_server.c.tmp" "${UPSTREAM_SINIPELTO_URL}" 2>/dev/null; then
+            mv "${SERVER_ROOT}/dayz_init_server.c.tmp" "${SERVER_ROOT}/dayz_init_server.c"
+            SOURCE_INIT="${SERVER_ROOT}/dayz_init_server.c"
+            echo "[Server-Scripts] Downloaded upstream sinipelto/dayz-scripts."
         else
-            echo "[Server-Scripts] Custom init.c is up to date."
+            rm -f "${SERVER_ROOT}/dayz_init_server.c.tmp"
+            echo "[Server-Scripts] WARNING: Could not fetch sinipelto/dayz-scripts from network."
+        fi
+    fi
+
+    if [ -n "${SOURCE_INIT}" ] && [ -f "${SOURCE_INIT}" ]; then
+        if ! grep -q "DAYZ_NOBE_CUSTOM_INIT" "${MISSION_INIT}" || ! cmp -s "${SOURCE_INIT}" "${MISSION_INIT}"; then
+            echo "[Server-Scripts] Installing custom server-side init.c (sinipelto/dayz-scripts) into ${MISSION_INIT}..."
+            cp "${MISSION_INIT}" "${MISSION_INIT}.bak.$(date +%Y%m%d%H%M%S)" 2>/dev/null || true
+            cp "${SOURCE_INIT}" "${MISSION_INIT}"
+            echo "[Server-Scripts] Applied sinipelto/dayz-scripts to ${MISSION_INIT}."
+        else
+            echo "[Server-Scripts] Custom init.c (sinipelto/dayz-scripts) is up to date."
         fi
     fi
 fi
+
 
 
