@@ -52,7 +52,7 @@ class CustomMission: MissionServer
 		{
 			string playerName = identity.GetName();
 			SendPlayerMessage(player, "[Server] Welcome to the server, " + playerName + "!");
-			SendPlayerMessage(player, "[Server] Chat commands: /help, /pos, /suicide, /admin <pass>");
+			SendPlayerMessage(player, "[Server] Chat commands: !help, !pos, !suicide, !admin <pass>");
 			SendPlayerMessage(player, "[Server] Admin tools: Press [Pause/Break] or check Pause Menu for VPPAdminTools.");
 		}
 	}
@@ -171,9 +171,13 @@ class CustomMission: MissionServer
 				// Immediately print every chat message to server stdout so it shows in Pterodactyl console
 				Print("[CHAT] " + senderName + ": " + message);
 
-				if (message.Length() > 0 && message.Substring(0, 1) == "/")
+				// The DayZ client swallows anything starting with "/" -- such messages never
+				// reach the server, so a slash prefix can never work. "!" is transmitted
+				// normally. "/" is still accepted in case a future client stops eating it.
+				string prefix = message.Substring(0, 1);
+				if (message.Length() > 1 && (prefix == "!" || prefix == "/"))
 				{
-					HandleChatCommand(senderName, message);
+					HandleChatCommand(senderName, "/" + message.Substring(1, message.Length() - 1));
 				}
 			}
 		}
@@ -216,17 +220,17 @@ class CustomMission: MissionServer
 		if (cmd == "/help")
 		{
 			SendPlayerMessage(senderPlayer, "=== Server Commands ===");
-			SendPlayerMessage(senderPlayer, "/help - Show this commands list");
-			SendPlayerMessage(senderPlayer, "/kill or /suicide - Respawn character");
-			SendPlayerMessage(senderPlayer, "/pos - Show current coordinates");
-			SendPlayerMessage(senderPlayer, "/admin <password> - Authenticate as Admin");
+			SendPlayerMessage(senderPlayer, "!help - Show this commands list");
+			SendPlayerMessage(senderPlayer, "!kill or !suicide - Respawn character");
+			SendPlayerMessage(senderPlayer, "!pos - Show current coordinates");
+			SendPlayerMessage(senderPlayer, "!admin <password> - Authenticate as Admin");
 			if (IsAdmin(senderIdentity))
 			{
 				SendPlayerMessage(senderPlayer, "=== Admin Commands ===");
-				SendPlayerMessage(senderPlayer, "/heal [name] - Restore health/stats");
-				SendPlayerMessage(senderPlayer, "/day / /night - Change time");
-				SendPlayerMessage(senderPlayer, "/say <msg> - Broadcast announcement");
-				SendPlayerMessage(senderPlayer, "/tp <targetName> - Teleport to player");
+				SendPlayerMessage(senderPlayer, "!heal [name] - Restore health/stats");
+				SendPlayerMessage(senderPlayer, "!day / !night - Change time");
+				SendPlayerMessage(senderPlayer, "!say <msg> - Broadcast announcement");
+				SendPlayerMessage(senderPlayer, "!tp <targetName> - Teleport to player");
 			}
 			return;
 		}
@@ -246,7 +250,7 @@ class CustomMission: MissionServer
 		{
 			if (tokens.Count() < 2)
 			{
-				SendPlayerMessage(senderPlayer, "Usage: /admin <password>");
+				SendPlayerMessage(senderPlayer, "Usage: !admin <password>");
 				return;
 			}
 
@@ -266,7 +270,7 @@ class CustomMission: MissionServer
 		// Admin-only commands below
 		if (!IsAdmin(senderIdentity))
 		{
-			SendPlayerMessage(senderPlayer, "Unknown command or permission denied. Type /help for commands.");
+			SendPlayerMessage(senderPlayer, "Unknown command or permission denied. Type !help for commands.");
 			return;
 		}
 
