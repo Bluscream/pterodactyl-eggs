@@ -1,4 +1,4 @@
-// DAYZ_NOBE_CUSTOM_INIT v3 -- sinipelto/dayz-scripts + "!" prefix + credential masking
+// DAYZ_NOBE_CUSTOM_INIT v4 -- sinipelto commands + jcaspes !cursor + joncantarino killfeed/stats
 void main()
 {
 	//INIT WEATHER BEFORE ECONOMY INIT------------------------
@@ -37,6 +37,149 @@ void main()
 				GetGame().GetWorld().SetDate(year, reset_month, reset_day, hour, minute);
 			}
 		}
+	}
+}
+
+// ===========================================================================
+//  Helper classes. Kept separate from CustomMission so each concern is
+//  independently readable and every entry point guards its own inputs.
+// ===========================================================================
+
+// Console logging. Never let a credential reach stdout or the RPT.
+class NobeLog
+{
+	static string Mask(string message)
+	{
+		if (message.Length() < 6) return message;
+		string low = message;
+		low.ToLower();
+		if (low.IndexOf("!admin") == 0 || low.IndexOf("/admin") == 0) return message.Substring(0, 6) + " ***";
+		if (low.IndexOf("!login") == 0 || low.IndexOf("/login") == 0) return message.Substring(0, 6) + " ***";
+		return message;
+	}
+
+	static void Chat(string senderName, string message)
+	{
+		Print("[CHAT] " + senderName + ": " + Mask(message));
+	}
+
+	static void Info(string message)
+	{
+		Print("[NoBE] " + message);
+	}
+}
+
+// Player messaging. Uses explicit PlayerBase.Cast so the engine stops warning
+// about unsafe down-casting, and refuses to touch a player without identity.
+class NobeChat
+{
+	static void ToPlayer(PlayerBase player, string message)
+	{
+		if (!player) return;
+		PlayerIdentity identity = player.GetIdentity();
+		if (!identity) return;
+		Param1<string> payload = new Param1<string>(message);
+		GetGame().RPCSingleParam(player, ERPCs.RPC_USER_ACTION_MESSAGE, payload, true, identity);
+	}
+
+	static void ToAll(string message)
+	{
+		array<Man> players = new array<Man>;
+		GetGame().GetPlayers(players);
+		for (int i = 0; i < players.Count(); ++i)
+		{
+			PlayerBase player = PlayerBase.Cast(players.Get(i));
+			if (player) ToPlayer(player, message);
+		}
+	}
+}
+
+// Object under the player's cursor. Ported from jcaspes/dayz-admin-server-scripts,
+// minus its Debug.DrawLine calls and per-object chat spam.
+class NobeCursor
+{
+	static Object Under(PlayerBase player)
+	{
+		if (!player) return NULL;
+
+		vector from = player.GetPosition();
+		vector to = from + (player.GetDirection() * 1000);
+		vector contactPos;
+		vector contactDir;
+		int contactComponent;
+		set<Object> hits = new set<Object>;
+
+		if (!DayZPhysics.RaycastRV(from, to, contactPos, contactDir, contactComponent, hits, NULL, player, false, false, ObjIntersectView, 0.5)) return NULL;
+		if (hits.Count() < 1) return NULL;
+		return hits.Get(0);
+	}
+
+	static void Do(PlayerBase player, string action)
+	{
+		Object obj = Under(player);
+		if (!obj)
+		{
+			NobeChat.ToPlayer(player, "Nothing found under cursor.");
+			return;
+		}
+
+		string describe = obj.GetType() + " (" + obj.GetDisplayName() + ")";
+		string act = action;
+		act.ToLower();
+
+		if (act == "delete")
+		{
+			obj.SetPosition(vector.Zero);
+			GetGame().ObjectDelete(obj);
+			NobeChat.ToPlayer(player, "Deleted under cursor: " + describe);
+			NobeLog.Info("Cursor delete: " + describe);
+			return;
+		}
+
+		NobeChat.ToPlayer(player, "Under cursor: " + describe);
+	}
+}
+
+// In-memory kill/death counters. Deliberately not persisted: joncantarino's
+// version needs a whole config/serialisation layer for that, and a restart
+// resetting the scoreboard is cheaper than carrying it.
+class NobeStats
+{
+	private static ref map<string, int> m_kills;
+	private static ref map<string, int> m_deaths;
+
+	static void Init()
+	{
+		if (!m_kills) m_kills = new map<string, int>;
+		if (!m_deaths) m_deaths = new map<string, int>;
+	}
+
+	static int Kills(string id)
+	{
+		Init();
+		if (m_kills.Contains(id)) return m_kills.Get(id);
+		return 0;
+	}
+
+	static int Deaths(string id)
+	{
+		Init();
+		if (m_deaths.Contains(id)) return m_deaths.Get(id);
+		return 0;
+	}
+
+	static void AddKill(string id)
+	{
+		Init();
+		if (id == "") return;
+		m_kills.Set(id, Kills(id) + 1);
+	}
+
+	static void AddDeath(string id)
+	{
+		Init();
+		if (id == "") return;
+		m_deaths.Set(id, Deaths(id) + 1);
 	}
 }
 
@@ -102,7 +245,7 @@ class CustomMission: MissionServer
 
 	bool Command(PlayerBase player, string command)
 	{
-		const string helpMsg = "Available commands: /help /car /warp /kill /give /gear /ammo /say /info /heal /god /suicide /here /there";
+		const string helpMsg = "Available commands: !help !car !warp !kill !give !gear !ammo !say !info !heal !god !suicide !here !there !spawn !cursor !stats";
 
 		// Split command message into args
 		TStringArray args = new TStringArray;
@@ -352,6 +495,23 @@ class CustomMission: MissionServer
 				if (!KillPlayer(arg)) {
 					SendPlayerMessage(player, "Error: Could not kill player.");
 				}	
+				break;
+
+			case "/cursor":
+				if ( !IsAdmin(player) ) {
+					SendPlayerMessage(player, "Admins only.");
+					return false;
+				}
+				if ( args.Count() > 1 )
+					NobeCursor.Do(player, args[1]);
+				else
+					NobeCursor.Do(player, "show");
+				break;
+
+			case "/stats":
+				PlayerIdentity statsId = player.GetIdentity();
+				if ( !statsId ) return false;
+				SendPlayerMessage(player, "Kills: " + NobeStats.Kills(statsId.GetPlainId()) + " | Deaths: " + NobeStats.Deaths(statsId.GetPlainId()));
 				break;
 
 			case "/help":
@@ -896,6 +1056,54 @@ class CustomMission: MissionServer
 		return true;
 	}
 	
+	// Fires when a player dies. m_KillerData is the engine's own record of who did
+	// it, so no extra bookkeeping is needed -- hook ported from
+	// joncantarino/DayZVanillaInit, without its file-backed config layer.
+	override void SyncRespawnModeInfo(PlayerIdentity identity)
+	{
+		super.SyncRespawnModeInfo(identity);
+
+		if ( !identity ) return;
+
+		PlayerBase victim = GetPlayer(identity.GetName(), Identity.NAME);
+		string victimName = identity.GetName();
+		NobeStats.AddDeath(identity.GetPlainId());
+
+		if ( !victim || !victim.m_KillerData || !victim.m_KillerData.m_Killer )
+		{
+			NobeLog.Info("[KILLFEED] " + victimName + " died.");
+			SendGlobalMessage(victimName + " died.");
+			return;
+		}
+
+		if ( !victim.m_KillerData.m_Killer.IsPlayer() )
+		{
+			NobeLog.Info("[KILLFEED] " + victimName + " was killed by " + victim.m_KillerData.m_Killer.GetType() + ".");
+			SendGlobalMessage(victimName + " was killed by " + victim.m_KillerData.m_Killer.GetDisplayName() + ".");
+			return;
+		}
+
+		Man killer = Man.Cast(victim.m_KillerData.m_Killer);
+		if ( !killer )
+		{
+			NobeLog.Info("[KILLFEED] " + victimName + " died.");
+			return;
+		}
+
+		PlayerIdentity killerIdentity = killer.GetIdentity();
+		if ( !killerIdentity )
+		{
+			NobeLog.Info("[KILLFEED] " + victimName + " died.");
+			return;
+		}
+
+		string killerName = killerIdentity.GetName();
+		NobeStats.AddKill(killerIdentity.GetPlainId());
+
+		NobeLog.Info("[KILLFEED] " + killerName + " killed " + victimName + ".");
+		SendGlobalMessage(killerName + " killed " + victimName + ".");
+	}
+
 	override void OnEvent(EventType eventTypeId, Param params)
 	{
 		switch(eventTypeId)
@@ -914,13 +1122,7 @@ class CustomMission: MissionServer
 				// Log every chat line to the server console, but mask the argument of an auth
 				// command: "!admin <pass>" would otherwise write the admin password into the
 				// console and the RPT.
-				string logName = string.ToString(chatParams.param2, false, false, false);
-				string logMsg = cmd;
-				string lowMsg = cmd;
-				lowMsg.ToLower();
-				if (lowMsg.IndexOf("!admin") == 0 || lowMsg.IndexOf("/admin") == 0) logMsg = cmd.Substring(0, 6) + " ***";
-				if (lowMsg.IndexOf("!login") == 0 || lowMsg.IndexOf("/login") == 0) logMsg = cmd.Substring(0, 6) + " ***";
-				Print("[CHAT] " + logName + ": " + logMsg);
+				NobeLog.Chat(string.ToString(chatParams.param2, false, false, false), cmd);
 
 				// command format: !abc def ghi
 				// DayZ clients never transmit chat starting with "/" -- the client consumes it
@@ -961,7 +1163,10 @@ class CustomMission: MissionServer
 	
 	bool IsAdmin(PlayerBase player)
 	{
-		return m_admins.Find( player.GetIdentity().GetPlainId() ) != -1;
+		if ( !player || !m_admins ) return false;
+		PlayerIdentity identity = player.GetIdentity();
+		if ( !identity ) return false;
+		return m_admins.Find( identity.GetPlainId() ) != -1;
 	}
 
 	PlayerBase GetPlayer(string tag, Identity type)
@@ -1009,24 +1214,14 @@ class CustomMission: MissionServer
 		return NULL;
 	}
 	
-	void SendGlobalMessage(string message)	
+	void SendGlobalMessage(string message)
 	{
-		ref array<Man> players = new array<Man>;
-		GetGame().GetPlayers( players );
-		
-		for ( int i = 0; i < players.Count(); ++i )
-		{
-			Man player = players.Get(i);
-			if ( player )
-				SendPlayerMessage(player, message);
-		}
+		NobeChat.ToAll(message);
 	}
-	
-	void SendPlayerMessage(PlayerBase player, string message)	
+
+	void SendPlayerMessage(PlayerBase player, string message)
 	{
-		Param1<string> Msgparam;
-		Msgparam = new Param1<string>(message);
-		GetGame().RPCSingleParam(player, ERPCs.RPC_USER_ACTION_MESSAGE, Msgparam, true, player.GetIdentity());
+		NobeChat.ToPlayer(player, message);
 	}
 	
 	string MyTrim(string text, string c)
