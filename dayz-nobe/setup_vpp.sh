@@ -13,8 +13,15 @@ VPP_SUPERADMINS_DIR="${VPP_BASE}/Permissions/SuperAdmins"
 MISSION_INIT="${SERVER_ROOT}/mpmissions/dayzOffline.chernarusplus/init.c"
 
 # 1. Password Auto-Resolution / Generation
-# Uses ADMIN_PASSWORD from egg config if set; otherwise auto-generates a clean, strong passphrase easy to type in chat (e.g. Wolf-Blue-772)
-if [ -z "${ADMIN_PASSWORD}" ] || [ "${ADMIN_PASSWORD}" = "changeme" ] || [ "${ADMIN_PASSWORD}" = "default" ]; then
+# Uses ADMIN_PASSWORD from egg config if set; otherwise uses/generates a persistent secret in .admin_secret
+PASS_FILE="${SERVER_ROOT}/.admin_secret"
+if [ -n "${ADMIN_PASSWORD}" ] && [ "${ADMIN_PASSWORD}" != "changeme" ] && [ "${ADMIN_PASSWORD}" != "default" ]; then
+    echo "[Security] Using Admin & RCON Passphrase configured in Egg."
+    echo -n "${ADMIN_PASSWORD}" > "${PASS_FILE}"
+elif [ -f "${PASS_FILE}" ] && [ -s "${PASS_FILE}" ]; then
+    export ADMIN_PASSWORD="$(cat "${PASS_FILE}" | tr -d '\r\n')"
+    echo "[Security] Loaded persistent Admin & RCON Passphrase from .admin_secret."
+else
     WORDS=("Alpha" "Brave" "Delta" "Eagle" "Falcon" "Ghost" "Hunter" "Kodiak" "Nova" "Omega" "Phantom" "Shadow" "Tiger" "Viper" "Wolf")
     COLORS=("Blue" "Gold" "Iron" "Jade" "Onyx" "Ruby" "Silver" "Steel")
     R_W=${WORDS[$((RANDOM % ${#WORDS[@]}))]}
@@ -22,9 +29,8 @@ if [ -z "${ADMIN_PASSWORD}" ] || [ "${ADMIN_PASSWORD}" = "changeme" ] || [ "${AD
     R_N=$((RANDOM % 900 + 100))
     SECURE_PASS="${R_W}-${R_C}-${R_N}"
     export ADMIN_PASSWORD="${SECURE_PASS}"
-    echo "[Security] Auto-generated Admin & RCON Passphrase: ${ADMIN_PASSWORD}"
-else
-    echo "[Security] Using Admin & RCON Passphrase configured in Egg."
+    echo -n "${ADMIN_PASSWORD}" > "${PASS_FILE}"
+    echo "[Security] Generated persistent Admin & RCON Passphrase: ${ADMIN_PASSWORD}"
 fi
 
 # 2. Sync BattlEye RCON Configuration (BEServer_x64.cfg)
@@ -80,15 +86,14 @@ if [ "${ENABLE_VPP_ADMIN}" = "1" ]; then
     echo "[VPP-Setup] VPPAdminTools credentials synced with ADMIN_PASSWORD."
 fi
 
-# 4. Server-Side Chat Logger & Slash Commands Auto-Installer (init.c)
+# 4. Server-Side Custom Init Auto-Installer (init.c)
 if [ -f "${MISSION_INIT}" ]; then
-    if ! grep -q "ChatMessageEventTypeID" "${MISSION_INIT}"; then
-        echo "[Server-Scripts] Installing Server-Side Chat Logger & Slash Commands into init.c..."
-        if [ -f "${SERVER_ROOT}/dayz_init_server.c" ]; then
+    if [ -f "${SERVER_ROOT}/dayz_init_server.c" ]; then
+        if ! grep -q "CustomMission" "${MISSION_INIT}"; then
+            echo "[Server-Scripts] Installing CustomMission into init.c..."
             cp "${SERVER_ROOT}/dayz_init_server.c" "${MISSION_INIT}"
             echo "[Server-Scripts] Successfully applied custom init.c from dayz_init_server.c."
         fi
-    else
-        echo "[Server-Scripts] Chat Logger & Slash Commands already present in init.c."
     fi
 fi
+

@@ -14,7 +14,7 @@
     "docker_images": {
         "ghcr.io/parkervcp/games:dayz": "ghcr.io/parkervcp/games:dayz"
     },
-    "startup": "perl ./patch_be.pl ./{{SERVER_BINARY}} 2>/dev/null || true; bash ./setup_vpp.sh 2>/dev/null || true; .\\/{{SERVER_BINARY}} -ip=0.0.0.0 -port={{SERVER_PORT}} -profiles=.\\/serverprofile -BEpath=.\\/ -config=serverDZ.cfg -mod=\"{{CLIENT_MODS}}\" -serverMod=\"{{SERVERMODS}}\" {{STARTUP_PARAMS}}",
+    "startup": "python3 ./patch_be.py ./{{SERVER_BINARY}}; bash ./setup_vpp.sh; ./{{SERVER_BINARY}} -ip=0.0.0.0 -port={{SERVER_PORT}} -profiles=./serverprofile -BEpath=./ -config=serverDZ.cfg -mod=\"{{CLIENT_MODS}}\" -serverMod=\"{{SERVERMODS}}\" {{STARTUP_PARAMS}}",
     "config": {
         "files": {
             "serverDZ.cfg": {
@@ -58,7 +58,7 @@
     },
     "scripts": {
         "installation": {
-            "script": "#!/bin/bash\r\n\r\n## File: Pterodactyl DayZ (Experimental) Egg - egg-dayz-experimental.json\r\n## Author: David Wolfe (Red-Thirten)\r\n## Date: 2022/05/26\r\n## License: MIT License\r\n## Image to install with is 'ghcr.io/parkervcp/installers:debian'\r\n\r\n\r\n# Download and install SteamCMD\r\ncd /tmp\r\nmkdir -p /mnt/server/steamcmd /mnt/server/steamapps\r\ncurl -sSL -o steamcmd.tar.gz https://steamcdn-a.akamaihd.net/client/installer/steamcmd_linux.tar.gz\r\ntar -xzvf steamcmd.tar.gz -C /mnt/server/steamcmd\r\ncd /mnt/server/steamcmd\r\n\r\n# SteamCMD fails otherwise for some reason, even running as root.\r\n# This is changed at the end of the install process anyways.\r\nchown -R root:root /mnt\r\nexport HOME=/mnt/server\r\n\r\n# Install game server using SteamCMD\r\n./steamcmd.sh +force_install_dir /mnt/server \"+login \\\"${STEAM_USER}\\\" \\\"${STEAM_PASS}\\\"\" +app_update ${STEAMCMD_APPID} ${STEAMCMD_EXTRA_FLAGS} validate +quit\r\n\r\n# Set up 32 and 64 bit libraries\r\nmkdir -p /mnt/server/.steam/sdk{32,64}\r\ncp -v linux32/steamclient.so /mnt/server/.steam/sdk32/steamclient.so\r\ncp -v linux64/steamclient.so /mnt/server/.steam/sdk64/steamclient.so\r\n\r\n\r\n## install end\r\necho \"-----------------------------------------\"\r\necho \"Installation completed...\"\r\necho \"-----------------------------------------\"",
+            "script": "#!/bin/bash\r\n\r\n## File: Pterodactyl DayZ Standalone (No-BE Patched) Egg\r\n## Image: 'ghcr.io/parkervcp/installers:debian'\r\n\r\ncd /tmp\r\nmkdir -p /mnt/server/steamcmd /mnt/server/steamapps\r\ncurl -sSL -o steamcmd.tar.gz https://steamcdn-a.akamaihd.net/client/installer/steamcmd_linux.tar.gz\r\ntar -xzvf steamcmd.tar.gz -C /mnt/server/steamcmd\r\ncd /mnt/server/steamcmd\r\n\r\nchown -R root:root /mnt\r\nexport HOME=/mnt/server\r\n\r\n# Install game server using SteamCMD\r\n./steamcmd.sh +force_install_dir /mnt/server \"+login \\\"${STEAM_USER}\\\" \\\"${STEAM_PASS}\\\"\" +app_update ${STEAMCMD_APPID} ${STEAMCMD_EXTRA_FLAGS} validate +quit\r\n\r\n# Set up 32 and 64 bit libraries\r\nmkdir -p /mnt/server/.steam/sdk{32,64}\r\ncp -v linux32/steamclient.so /mnt/server/.steam/sdk32/steamclient.so\r\ncp -v linux64/steamclient.so /mnt/server/.steam/sdk64/steamclient.so\r\n\r\n# Download / deliver egg companion scripts (patch_be.py, setup_vpp.sh, dayz_init_server.c)\r\necho \"Downloading egg helper scripts from repository...\"\r\nRAW_BASE=\"https://raw.githubusercontent.com/bluscream/pterodactyl-eggs/master/dayz-nobe\"\r\ncurl -sSL -o /mnt/server/patch_be.py \"${RAW_BASE}/patch_be.py\" || true\r\ncurl -sSL -o /mnt/server/setup_vpp.sh \"${RAW_BASE}/setup_vpp.sh\" || true\r\ncurl -sSL -o /mnt/server/dayz_init_server.c \"${RAW_BASE}/dayz_init_server.c\" || true\r\nchmod +x /mnt/server/patch_be.py /mnt/server/setup_vpp.sh 2>/dev/null || true\r\n\r\n## install end\r\necho \"-----------------------------------------\"\r\necho \"Installation completed...\"\r\necho \"-----------------------------------------\"",
             "container": "ghcr.io/parkervcp/installers:debian",
             "entrypoint": "/bin/bash"
         }
@@ -102,6 +102,16 @@
             "user_viewable": false,
             "user_editable": false,
             "rules": "required|integer",
+            "field_type": "text"
+        },
+        {
+            "name": "SteamCMD Extra Flags",
+            "description": "Additional flags passed to SteamCMD app_update during installation or updates (e.g. -beta experimental).",
+            "env_variable": "STEAMCMD_EXTRA_FLAGS",
+            "default_value": "",
+            "user_viewable": true,
+            "user_editable": true,
+            "rules": "nullable|string",
             "field_type": "text"
         },
         {
@@ -376,9 +386,9 @@
         },
         {
             "name": "Steam Query Port",
-            "description": "Port used by Steam and DayZ SA Launcher to query server info (A2S_INFO). Bohemia default is 2305.",
+            "description": "Port used by Steam and DayZ SA Launcher to query server info (A2S_INFO). Standard port is 2303.",
             "env_variable": "STEAM_QUERY_PORT",
-            "default_value": "2305",
+            "default_value": "2303",
             "user_viewable": true,
             "user_editable": true,
             "rules": "required|integer",
@@ -386,9 +396,9 @@
         },
         {
             "name": "Client Connect Port",
-            "description": "Port clients connect with (clientPort). Defaults to 2304.",
+            "description": "Port clients connect with (clientPort). Defaults to 2305.",
             "env_variable": "CLIENT_PORT",
-            "default_value": "2304",
+            "default_value": "2305",
             "user_viewable": true,
             "user_editable": true,
             "rules": "required|integer",
@@ -396,7 +406,7 @@
         },
         {
             "name": "RCON Port",
-            "description": "Port used for BattlEye RCON remote administration (RConPort in BEServer_x64.cfg).",
+            "description": "Port used for BattlEye RCON remote administration (RConPort in BEServer_x64.cfg). Defaults to 2304.",
             "env_variable": "RCON_PORT",
             "default_value": "2304",
             "user_viewable": true,

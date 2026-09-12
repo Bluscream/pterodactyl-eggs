@@ -12,3 +12,5 @@ A Pterodactyl Egg for hosting DayZ Standalone Dedicated Servers with an automate
 ## Files
 - `egg-dayz-nobe.json`: Complete Pterodactyl v2 Egg ready for import.
 - `patch_be.py`: Universal standalone Linux/Windows binary patcher.
+- `setup_vpp.sh`: Automated mod keys installer, BattlEye RCON configuration, and SuperAdmin provisioning script.
+- `dayz_init_server.c`: Reference mission init script providing player connection greetings and server-side utilities.
