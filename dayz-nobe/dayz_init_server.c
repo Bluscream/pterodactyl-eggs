@@ -671,7 +671,7 @@ class CustomMission: MissionServer
 		{
 			case "offroad":
 				// Spawn and build the car
-				car = GetGame().CreateObject("OffroadHatchback", pos);
+				car = Car.Cast(GetGame().CreateObject("OffroadHatchback", pos));
 				car.GetInventory().CreateAttachment("HatchbackTrunk");
 				car.GetInventory().CreateAttachment("HatchbackHood");
 				car.GetInventory().CreateAttachment("HatchbackDoors_CoDriver");
@@ -686,7 +686,7 @@ class CustomMission: MissionServer
 			
 			case "olga":
 				// Spawn and build the car
-				car = GetGame().CreateObject("CivilianSedan", pos);
+				car = Car.Cast(GetGame().CreateObject("CivilianSedan", pos));
 				car.GetInventory().CreateAttachment("CivSedanHood");
 				car.GetInventory().CreateAttachment("CivSedanTrunk");
 				car.GetInventory().CreateAttachment("CivSedanDoors_Driver");
@@ -703,7 +703,7 @@ class CustomMission: MissionServer
 				
 			case "olgablack":
 				// Spawn and build the car
-				car = GetGame().CreateObject("CivilianSedan_Black", pos);
+				car = Car.Cast(GetGame().CreateObject("CivilianSedan_Black", pos));
 				car.GetInventory().CreateAttachment("CivSedanHood_Black");
 				car.GetInventory().CreateAttachment("CivSedanTrunk_Black");
 				car.GetInventory().CreateAttachment("CivSedanDoors_Driver_Black");
@@ -720,7 +720,7 @@ class CustomMission: MissionServer
 				
 			case "sarka":
 				// Spawn and build the car
-				car = GetGame().CreateObject("Sedan_02", pos);
+				car = Car.Cast(GetGame().CreateObject("Sedan_02", pos));
 				car.GetInventory().CreateAttachment("Sedan_02_Hood");
 				car.GetInventory().CreateAttachment("Sedan_02_Trunk");
 				car.GetInventory().CreateAttachment("Sedan_02_Door_1_1");
@@ -737,7 +737,7 @@ class CustomMission: MissionServer
 
 			case "gunter":
 				// Spawn and build the car
-				car = GetGame().CreateObject("Hatchback_02", pos);
+				car = Car.Cast(GetGame().CreateObject("Hatchback_02", pos));
 				car.GetInventory().CreateAttachment("Hatchback_02_Hood");
 				car.GetInventory().CreateAttachment("Hatchback_02_Trunk");
 				car.GetInventory().CreateAttachment("Hatchback_02_Door_1_1");
