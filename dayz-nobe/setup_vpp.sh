@@ -93,6 +93,8 @@ steam_guard_code() {
 }
 
 install_workshop_mods() {
+    STEAM_2FA_URL="${STEAM_2FA_URL:-${STEAM_GUARD_URL}}"
+    [ -z "${STEAM_2FA_URL}" ] && [ -f "${GUARD_URL_FILE}" ] && STEAM_2FA_URL="$(tr -d ' \r\n' < "${GUARD_URL_FILE}")"
     [ -z "${MODIFICATIONS}" ] && return 0
     [ -z "${STEAM_USER}" ] && return 0
     [ "${STEAM_USER}" = "anonymous" ] && return 0
@@ -118,6 +120,13 @@ install_workshop_mods() {
 
     local content="${SERVER_ROOT}/steamapps/workshop/content/${WORKSHOP_APPID}"
     for id in ${missing}; do
+        # Re-mint a code for every mod. A successful login does not reliably leave a sentry
+        # behind here (observed: the first mod downloaded, every later one hit the Guard
+        # prompt again), and a TOTP is single-use anyway. When the code comes from a URL this
+        # is free; when it came from a file or variable there is only ever the one.
+        if [ -z "${code}" ] || [ -n "${STEAM_2FA_URL}" ]; then
+            code="$(steam_guard_code)"
+        fi
         echo "[Mods] Downloading ${id}..."
         # Credentials are passed as arguments to steamcmd and never echoed.
         # stdin is /dev/null and the call is time-boxed: when Steam wants a code it has not
@@ -129,9 +138,10 @@ install_workshop_mods() {
             < /dev/null > "${SERVER_ROOT}/.steamcmd_mods.log" 2>&1 || true
 
         if grep -qi "check your email\|Steam Guard code" "${SERVER_ROOT}/.steamcmd_mods.log" 2>/dev/null; then
-            echo "[Mods] Steam wants an EMAIL Steam Guard code for this account."
-            echo "[Mods]   A mobile-authenticator/ASF token will NOT work for email Guard."
-            echo "[Mods]   Put the code from your email in .steam_2fa_code (or STEAM_2FA_CODE) and restart."
+            echo "[Mods] Steam asked for a Guard code that this login did not satisfy."
+            echo "[Mods]   steamcmd's prompt text mentions email, but it says that for any"
+            echo "[Mods]   unauthenticated machine -- it is not evidence of the Guard type."
+            echo "[Mods]   A fresh code is minted per mod when STEAM_2FA_URL is set."
         fi
 
         if [ ! -d "${content}/${id}" ]; then
@@ -146,8 +156,6 @@ install_workshop_mods() {
                 'for f; do d=$(dirname "$f"); b=$(basename "$f"); n=$(echo "$b" | tr "[:upper:]" "[:lower:]"); [ "$b" != "$n" ] && mv -T "$f" "$d/$n"; done' _ {} + 2>/dev/null || true
         fi
         echo "[Mods] Installed @${id}."
-        # A code is single-use; drop it so the next iteration relies on the new sentry.
-        code=""
     done
 
     # Never leave a stale one-shot code behind: it cannot work twice, and keeping it would
