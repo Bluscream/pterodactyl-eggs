@@ -101,9 +101,19 @@ install_workshop_mods() {
     for id in ${missing}; do
         echo "[Mods] Downloading ${id}..."
         # Credentials are passed as arguments to steamcmd and never echoed.
-        "${SERVER_ROOT}/steamcmd/steamcmd.sh" +force_install_dir "${SERVER_ROOT}" \
+        # stdin is /dev/null and the call is time-boxed: when Steam wants a code it has not
+        # got, steamcmd prompts ("enter the Steam Guard code") and would otherwise block the
+        # boot forever waiting on a tty that does not exist.
+        timeout 1800 "${SERVER_ROOT}/steamcmd/steamcmd.sh" +force_install_dir "${SERVER_ROOT}" \
             +login "${STEAM_USER}" "${STEAM_PASS}" ${code} \
-            +workshop_download_item "${WORKSHOP_APPID}" "${id}" +quit > /dev/null 2>&1 || true
+            +workshop_download_item "${WORKSHOP_APPID}" "${id}" +quit \
+            < /dev/null > "${SERVER_ROOT}/.steamcmd_mods.log" 2>&1 || true
+
+        if grep -qi "check your email\|Steam Guard code" "${SERVER_ROOT}/.steamcmd_mods.log" 2>/dev/null; then
+            echo "[Mods] Steam wants an EMAIL Steam Guard code for this account."
+            echo "[Mods]   A mobile-authenticator/ASF token will NOT work for email Guard."
+            echo "[Mods]   Put the code from your email in .steam_2fa_code (or STEAM_2FA_CODE) and restart."
+        fi
 
         if [ ! -d "${content}/${id}" ]; then
             echo "[Mods] FAILED: ${id} did not download. Check STEAM_USER/STEAM_PASS, that the"
