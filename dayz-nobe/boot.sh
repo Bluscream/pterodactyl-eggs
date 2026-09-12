@@ -31,5 +31,37 @@ if [ ! -f "${BIN}" ]; then
     exit 1
 fi
 
-echo "[boot] Starting: ${BIN} $*"
-exec "${BIN}" "$@"
+# Drop mods whose folders are not actually present. DayZ refuses to start when -mod names a
+# directory that does not exist, so one failed workshop download would otherwise take the
+# whole server down (observed: adding 8 mods with no Steam credentials -> OFFLINE). Starting
+# with the mods we have, and saying loudly which are missing, beats not starting at all.
+ARGS=()
+for arg in "$@"; do
+    case "${arg}" in
+        -mod=*|-serverMod=*)
+            prefix="${arg%%=*}"
+            kept=""
+            dropped=""
+            IFS=';' read -ra entries <<< "${arg#*=}"
+            for entry in "${entries[@]}"; do
+                [ -z "${entry}" ] && continue
+                if [ -d "/home/container/${entry#@}" ] || [ -d "/home/container/${entry}" ]; then
+                    kept="${kept}${entry};"
+                else
+                    dropped="${dropped} ${entry}"
+                fi
+            done
+            if [ -n "${dropped}" ]; then
+                echo "[boot] WARNING: ${prefix} entries not installed, dropping:${dropped}"
+                echo "[boot]   Server will start without them. Check the [Mods] lines above."
+            fi
+            ARGS+=("${prefix}=${kept}")
+            ;;
+        *)
+            ARGS+=("${arg}")
+            ;;
+    esac
+done
+
+echo "[boot] Starting: ${BIN} ${ARGS[*]}"
+exec "${BIN}" "${ARGS[@]}"
