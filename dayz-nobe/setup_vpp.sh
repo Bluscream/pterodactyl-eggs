@@ -19,6 +19,87 @@ MISSION_NAME="$(sed -n 's/^[[:space:]]*template[[:space:]]*=[[:space:]]*"\([^"]*
 MISSION_NAME="${MISSION_NAME:-dayzOffline.chernarusplus}"
 MISSION_INIT="${SERVER_ROOT}/mpmissions/${MISSION_NAME}/init.c"
 
+# 0. Steam Workshop mods with Steam Guard support
+#
+# Why this exists: the runtime image's /entrypoint.sh downloads workshop mods with a bare
+#   steamcmd.sh "+login \"${STEAM_USER}\" \"${STEAM_PASS}\"" +workshop_download_item ...
+# and has no way to pass a Steam Guard code. On a Guard-protected account every download
+# fails with "two-factor" / "Failure", the mod folders never appear, and DayZ then refuses
+# to start because -mod names a directory that does not exist. We cannot patch the image,
+# so this retries the downloads ourselves, with a code, before the server is launched.
+#
+# STEAM_GUARD     - a one-shot code. Only needed until Steam trusts this machine: the first
+#                   successful login writes a sentry (Steam/config/ssfn*) into the server
+#                   volume and later logins need no code at all.
+# STEAM_GUARD_URL - optional endpoint returning a fresh code, for accounts where the sentry
+#                   keeps getting invalidated. Any ArchiSteamFarm 2FA endpoint works, e.g.
+#                   https://asf.host/api/bot/<bot>/twoFactorAuthentication/token?password=...
+#                   The response may be plain text or ASF's JSON; both are handled.
+WORKSHOP_APPID="221100"
+
+steam_guard_code() {
+    if [ -n "${STEAM_GUARD}" ]; then
+        echo "${STEAM_GUARD}"
+        return 0
+    fi
+    [ -z "${STEAM_GUARD_URL}" ] && return 0
+    # Extract the first 5-character alphanumeric token: matches ASF's {"Result":{"bot":
+    # {"Result":"ABC12"}}} as well as a bare code, without needing a JSON parser.
+    curl --fail -sSL --max-time 15 "${STEAM_GUARD_URL}" 2>/dev/null \
+        | grep -oE '[A-Z0-9]{5}' | head -1
+}
+
+install_workshop_mods() {
+    [ -z "${MODIFICATIONS}" ] && return 0
+    [ -z "${STEAM_USER}" ] && return 0
+    [ "${STEAM_USER}" = "anonymous" ] && return 0
+
+    local missing=""
+    local id
+    for id in $(echo "${MODIFICATIONS}" | tr ';' ' ' | tr -d '@'); do
+        [ -z "${id}" ] && continue
+        [ -d "${SERVER_ROOT}/@${id}" ] && continue
+        missing="${missing} ${id}"
+    done
+    [ -z "${missing}" ] && return 0
+
+    echo "[Mods] Missing workshop mods:${missing}"
+
+    local code
+    code="$(steam_guard_code)"
+    if [ -n "${code}" ]; then
+        echo "[Mods] Using a Steam Guard code (not logged here)."
+    else
+        echo "[Mods] No Steam Guard code available -- relying on the stored sentry file."
+    fi
+
+    local content="${SERVER_ROOT}/steamapps/workshop/content/${WORKSHOP_APPID}"
+    for id in ${missing}; do
+        echo "[Mods] Downloading ${id}..."
+        # Credentials are passed as arguments to steamcmd and never echoed.
+        "${SERVER_ROOT}/steamcmd/steamcmd.sh" +force_install_dir "${SERVER_ROOT}" \
+            +login "${STEAM_USER}" "${STEAM_PASS}" ${code} \
+            +workshop_download_item "${WORKSHOP_APPID}" "${id}" +quit > /dev/null 2>&1 || true
+
+        if [ ! -d "${content}/${id}" ]; then
+            echo "[Mods] FAILED: ${id} did not download. Check STEAM_USER/STEAM_PASS, that the"
+            echo "[Mods]   account owns DayZ, and that Steam Guard is satisfied."
+            continue
+        fi
+
+        cp -r "${content}/${id}" "${SERVER_ROOT}/@${id}"
+        if [ "${MODS_LOWERCASE}" = "1" ]; then
+            find "${SERVER_ROOT}/@${id}" -depth -name '*[A-Z]*' -exec bash -c \
+                'for f; do d=$(dirname "$f"); b=$(basename "$f"); n=$(echo "$b" | tr "[:upper:]" "[:lower:]"); [ "$b" != "$n" ] && mv -T "$f" "$d/$n"; done' _ {} + 2>/dev/null || true
+        fi
+        echo "[Mods] Installed @${id}."
+        # A code is single-use; drop it so the next iteration relies on the new sentry.
+        code=""
+    done
+}
+
+install_workshop_mods
+
 # 0. BattlEye master switch
 # DISABLE_BATTLEYE=1 -> binary patched, battleye=0, no BEServer cfg. No BattlEye, no RCON.
 # DISABLE_BATTLEYE=0 -> stock binary restored, battleye=1, BEServer cfg written. BattlEye + RCON.
