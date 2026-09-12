@@ -55,6 +55,9 @@ steam_guard_code() {
         return 0
     fi
     if [ -z "${STEAM_GUARD_URL}" ] && [ -f "${GUARD_URL_FILE}" ]; then
+        # This URL usually embeds an IPC password, so keep it owner-readable only. The panel
+        # file manager can still read it -- treat it as a secret that lives on the server.
+        chmod 600 "${GUARD_URL_FILE}" 2>/dev/null || true
         STEAM_GUARD_URL="$(tr -d ' \r\n' < "${GUARD_URL_FILE}")"
     fi
     [ -z "${STEAM_GUARD_URL}" ] && return 0
