@@ -39,34 +39,6 @@ RConPort ${RCON_PORT}
 EOF
 echo "[RCON] Configured BattlEye RCON on port ${RCON_PORT} (RestrictRCon 0)."
 
-# 2.1 Sync Native MOTD in serverDZ.cfg
-SERVER_CFG="${SERVER_ROOT}/serverDZ.cfg"
-if [ -f "${SERVER_CFG}" ]; then
-    if ! grep -q "motd\[\]" "${SERVER_CFG}"; then
-        cat <<'EOF' >> "${SERVER_CFG}"
-
-// Server Welcome & Automated Messages
-motdInterval = 180;
-motd[] = {
-    "Welcome to Chernarus. Check chat commands: /help, /pos, /suicide",
-    "Admin Tools: Press [Pause/Break] or open Pause Menu for VPPAdminTools.",
-    "You hear faint whispers behind your back...",
-    "Did you remember to check the backseat?",
-    "A cold chill runs down your spine. You are not alone.",
-    "Someone just chambered a round nearby.",
-    "You feel like multiple pairs of eyes are watching you through the tree line...",
-    "Was that twig snapping in the bushes behind you, or was it the wind?",
-    "Your Geiger counter begins ticking faintly in the distance...",
-    "You hear breathing right in your ear, but when you turn around, nothing is there.",
-    "Check your pockets... did something just go missing?",
-    "The crows suddenly went dead silent above the canopy.",
-    "Type /admin <password> in chat to authenticate server-side admin sessions."
-};
-EOF
-        echo "[Config] Added native MOTD announcements to serverDZ.cfg."
-    fi
-fi
-
 # 3. VPP Admin Tools Setup
 if [ "${ENABLE_VPP_ADMIN}" = "1" ]; then
     echo "[VPP-Setup] Initializing VanillaPlusPlus Admin Tools & Community Framework Setup..."
