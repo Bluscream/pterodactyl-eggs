@@ -119,7 +119,16 @@ install_workshop_mods() {
     fi
 
     local content="${SERVER_ROOT}/steamapps/workshop/content/${WORKSHOP_APPID}"
+    local fails=0
     for id in ${missing}; do
+        # Steam rate-limits repeated logins, and each attempt can then sit in "Retrying..."
+        # until the timeout. Downloading mods must never hold the server down, so give up for
+        # this boot after two consecutive failures and start with whatever is installed.
+        if [ "${fails}" -ge 2 ]; then
+            echo "[Mods] Two consecutive failures -- stopping for this boot (Steam is likely"
+            echo "[Mods]   rate-limiting logins). Remaining mods retry on the next restart."
+            break
+        fi
         # Re-mint a code for every mod. A successful login does not reliably leave a sentry
         # behind here (observed: the first mod downloaded, every later one hit the Guard
         # prompt again), and a TOTP is single-use anyway. When the code comes from a URL this
@@ -132,7 +141,7 @@ install_workshop_mods() {
         # stdin is /dev/null and the call is time-boxed: when Steam wants a code it has not
         # got, steamcmd prompts ("enter the Steam Guard code") and would otherwise block the
         # boot forever waiting on a tty that does not exist.
-        timeout 1800 "${SERVER_ROOT}/steamcmd/steamcmd.sh" +force_install_dir "${SERVER_ROOT}" \
+        timeout 900 "${SERVER_ROOT}/steamcmd/steamcmd.sh" +force_install_dir "${SERVER_ROOT}" \
             +login "${STEAM_USER}" "${STEAM_PASS}" ${code} \
             +workshop_download_item "${WORKSHOP_APPID}" "${id}" +quit \
             < /dev/null > "${SERVER_ROOT}/.steamcmd_mods.log" 2>&1 || true
@@ -147,6 +156,7 @@ install_workshop_mods() {
         if [ ! -d "${content}/${id}" ]; then
             echo "[Mods] FAILED: ${id} did not download. Check STEAM_USER/STEAM_PASS, that the"
             echo "[Mods]   account owns DayZ, and that Steam Guard is satisfied."
+            fails=$((fails+1))
             continue
         fi
 
@@ -156,6 +166,7 @@ install_workshop_mods() {
                 'for f; do d=$(dirname "$f"); b=$(basename "$f"); n=$(echo "$b" | tr "[:upper:]" "[:lower:]"); [ "$b" != "$n" ] && mv -T "$f" "$d/$n"; done' _ {} + 2>/dev/null || true
         fi
         echo "[Mods] Installed @${id}."
+        fails=0
     done
 
     # Never leave a stale one-shot code behind: it cannot work twice, and keeping it would
