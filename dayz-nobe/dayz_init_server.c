@@ -168,8 +168,18 @@ class CustomMission: MissionServer
 				string senderName = chatParams.param2;
 				string message = chatParams.param3;
 
-				// Immediately print every chat message to server stdout so it shows in Pterodactyl console
-				Print("[CHAT] " + senderName + ": " + message);
+				// Print every chat message to server stdout, but never the argument of an auth
+				// command: "!admin <pass>" would otherwise write the admin password into the
+				// console, the RPT and any log shipped off the box.
+				string logged = message;
+				string lower = message;
+				lower.ToLower();
+				if (lower.IndexOf("!admin") == 0 || lower.IndexOf("/admin") == 0 ||
+				    lower.IndexOf("!login") == 0 || lower.IndexOf("/login") == 0)
+				{
+					logged = message.Substring(0, 6) + " ***";
+				}
+				Print("[CHAT] " + senderName + ": " + logged);
 
 				// The DayZ client swallows anything starting with "/" -- such messages never
 				// reach the server, so a slash prefix can never work. "!" is transmitted

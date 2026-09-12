@@ -76,7 +76,7 @@ else
     SECURE_PASS="${R_W}-${R_C}-${R_N}"
     export ADMIN_PASSWORD="${SECURE_PASS}"
     echo -n "${ADMIN_PASSWORD}" > "${PASS_FILE}"
-    echo "[Security] Generated persistent Admin & RCON Passphrase: ${ADMIN_PASSWORD}"
+    echo "[Security] Generated a persistent admin passphrase -> .admin_secret (not printed here)."
 fi
 chmod 600 "${PASS_FILE}" 2>/dev/null || true
 

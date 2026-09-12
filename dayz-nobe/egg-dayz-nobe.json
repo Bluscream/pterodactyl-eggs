@@ -404,7 +404,7 @@
         },
         {
             "name": "Disable BattlEye",
-            "description": "1 = BattlEye off: server binary patched, battleye=0. No bans, no kicks, no RCON.\n0 = BattlEye on: stock binary restored, battleye=1, BE RCON works.\nTakes effect on restart.",
+            "description": "1 disables BattlEye entirely (no bans, no kicks, no RCON), 0 leaves it fully enabled.",
             "env_variable": "DISABLE_BATTLEYE",
             "default_value": "1",
             "user_viewable": true,
