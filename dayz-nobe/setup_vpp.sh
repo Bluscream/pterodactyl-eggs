@@ -153,20 +153,36 @@ if [ "${ENABLE_VPP_ADMIN}" = "1" ]; then
     echo "[VPP-Setup] VPPAdminTools credentials synced with ADMIN_PASSWORD."
 fi
 
+# 3.1 Provision Server-Side Script Admins ($profile:admins.txt)
+# Used by sinipelto/dayz-scripts in init.c for zero-client-mod admin commands
+ADMINS_TXT="${SERVER_PROFILE}/admins.txt"
+mkdir -p "${SERVER_PROFILE}"
+SUPERADMIN_IDS="${VPP_SUPERADMINS:-76561198022446661}"
+cat <<'EOF' > "${ADMINS_TXT}"
+// This file contains SteamID64 of all server admins for server-side init.c commands.
+// Managed automatically by setup_vpp.sh. Lines starting with // are comments.
+EOF
+for sid in $(echo "${SUPERADMIN_IDS}" | tr ',' ' '); do
+    if [ -n "${sid}" ]; then
+        echo "${sid}" >> "${ADMINS_TXT}"
+    fi
+done
+echo "[Server-Scripts] Synced admin SteamID(s) to ${ADMINS_TXT} for server-side chat commands."
+
 # 4. Server-Side Custom Init Auto-Installer (init.c)
+# Installs sinipelto/dayz-scripts + custom mission server scripts
 if [ -f "${MISSION_INIT}" ]; then
     if [ -f "${SERVER_ROOT}/dayz_init_server.c" ]; then
-        # Marker must be unique to dayz_init_server.c. Do NOT grep for "CustomMission" --
-        # vanilla mpmissions init.c already declares "class CustomMission: MissionServer",
-        # so that guard matches on an untouched install and the custom init never lands.
-        if ! grep -q "DAYZ_NOBE_CUSTOM_INIT" "${MISSION_INIT}"; then
-            echo "[Server-Scripts] Installing custom server-side init.c..."
-            cp "${MISSION_INIT}" "${MISSION_INIT}.bak.$(date +%Y%m%d%H%M%S)"
+        # Install or update if dayz_init_server.c has changed
+        if ! grep -q "DAYZ_NOBE_CUSTOM_INIT" "${MISSION_INIT}" || ! cmp -s "${SERVER_ROOT}/dayz_init_server.c" "${MISSION_INIT}"; then
+            echo "[Server-Scripts] Installing/updating custom server-side init.c (sinipelto/dayz-scripts)..."
+            cp "${MISSION_INIT}" "${MISSION_INIT}.bak.$(date +%Y%m%d%H%M%S)" 2>/dev/null || true
             cp "${SERVER_ROOT}/dayz_init_server.c" "${MISSION_INIT}"
-            echo "[Server-Scripts] Applied dayz_init_server.c (previous init.c backed up alongside it)."
+            echo "[Server-Scripts] Applied dayz_init_server.c to ${MISSION_INIT}."
         else
-            echo "[Server-Scripts] Custom init.c already installed."
+            echo "[Server-Scripts] Custom init.c is up to date."
         fi
     fi
 fi
+
 
