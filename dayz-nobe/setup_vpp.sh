@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# VPP Admin Tools, Community Framework (CF) & BattlEye RCON Setup Script
+# VPP Admin Tools, Community Framework (CF), Server-Side Admin Commands & BattlEye RCON Setup Script
 # Automatically manages keys, provisions SuperAdmin permissions, and syncs shared passwords
 
 set -e
@@ -10,6 +10,7 @@ KEYS_DIR="${SERVER_ROOT}/keys"
 BATTLEYE_DIR="${SERVER_ROOT}/battleye"
 VPP_BASE="${SERVER_PROFILE}/VPPAdminTools"
 VPP_SUPERADMINS_DIR="${VPP_BASE}/Permissions/SuperAdmins"
+MISSION_INIT="${SERVER_ROOT}/mpmissions/dayzOffline.chernarusplus/init.c"
 
 # 1. Password Auto-Resolution / Generation
 # Uses ADMIN_PASSWORD from egg config if set; otherwise auto-generates a clean, strong passphrase easy to type in chat (e.g. Wolf-Blue-772)
@@ -73,4 +74,17 @@ if [ "${ENABLE_VPP_ADMIN}" = "1" ]; then
     mkdir -p "${VPP_BASE}"
     echo "password=${ADMIN_PASSWORD}" > "${VPP_BASE}/credentials.txt"
     echo "[VPP-Setup] VPPAdminTools credentials synced with ADMIN_PASSWORD."
+fi
+
+# 4. Server-Side Chat Logger & Slash Commands Auto-Installer (init.c)
+if [ -f "${MISSION_INIT}" ]; then
+    if ! grep -q "ChatMessageEventTypeID" "${MISSION_INIT}"; then
+        echo "[Server-Scripts] Installing Server-Side Chat Logger & Slash Commands into init.c..."
+        if [ -f "${SERVER_ROOT}/dayz_init_server.c" ]; then
+            cp "${SERVER_ROOT}/dayz_init_server.c" "${MISSION_INIT}"
+            echo "[Server-Scripts] Successfully applied custom init.c from dayz_init_server.c."
+        fi
+    else
+        echo "[Server-Scripts] Chat Logger & Slash Commands already present in init.c."
+    fi
 fi
