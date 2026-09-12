@@ -67,10 +67,29 @@ steam_guard_code() {
         STEAM_2FA_URL="$(tr -d ' \r\n' < "${GUARD_URL_FILE}")"
     fi
     [ -z "${STEAM_2FA_URL}" ] && return 0
+    # Newer ArchiSteamFarm builds reject ?password= on IPC and want the secret in an
+    # "Authentication" header instead -- that combination answers 401 with a correct
+    # password, which is exactly what this server saw. Send both so either vintage works.
+    local ipc_pw=""
+    case "${STEAM_2FA_URL}" in
+        *password=*)
+            ipc_pw="${STEAM_2FA_URL##*password=}"
+            ipc_pw="${ipc_pw%%&*}"
+            ;;
+    esac
+
     # Extract the first 5-character alphanumeric token: matches ASF's {"Result":{"bot":
     # {"Result":"ABC12"}}} as well as a bare code, without needing a JSON parser.
-    curl --fail -sSL --max-time 15 "${STEAM_2FA_URL}" 2>/dev/null \
-        | grep -oE '[A-Z0-9]{5}' | head -1
+    local response
+    response="$(curl --fail -sSL --max-time 15 -H "Authentication: ${ipc_pw}" "${STEAM_2FA_URL}" 2>/dev/null)"
+    if [ -z "${response}" ]; then
+        response="$(curl --fail -sSL --max-time 15 "${STEAM_2FA_URL}" 2>/dev/null)"
+    fi
+    if [ -z "${response}" ]; then
+        echo "[Mods] 2FA URL returned nothing (auth rejected or unreachable)." >&2
+        return 0
+    fi
+    echo "${response}" | grep -oE '[A-Z0-9]{5}' | head -1
 }
 
 install_workshop_mods() {
