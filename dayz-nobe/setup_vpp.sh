@@ -19,6 +19,45 @@ MISSION_NAME="$(sed -n 's/^[[:space:]]*template[[:space:]]*=[[:space:]]*"\([^"]*
 MISSION_NAME="${MISSION_NAME:-dayzOffline.chernarusplus}"
 MISSION_INIT="${SERVER_ROOT}/mpmissions/${MISSION_NAME}/init.c"
 
+# 0. BattlEye master switch
+# DISABLE_BATTLEYE=1 -> binary patched, battleye=0, no BEServer cfg. No BattlEye, no RCON.
+# DISABLE_BATTLEYE=0 -> stock binary restored, battleye=1, BEServer cfg written. BattlEye + RCON.
+# Falls back to the inverse of the older ENABLE_BATTLEYE variable so servers whose panel
+# still has the old egg imported keep working.
+if [ -z "${DISABLE_BATTLEYE}" ]; then
+    if [ "${ENABLE_BATTLEYE}" = "1" ]; then DISABLE_BATTLEYE=0; else DISABLE_BATTLEYE=1; fi
+fi
+
+SERVER_BIN="${SERVER_ROOT}/${SERVER_BINARY:-DayZServer}"
+STOCK_BIN="${SERVER_BIN}.orig"
+
+set_cfg() { # key, value -- replace or append in serverDZ.cfg
+    [ -f "${SERVER_CFG}" ] || return 0
+    if grep -q "^[[:space:]]*$1[[:space:]]*=" "${SERVER_CFG}"; then
+        sed -i "s|^[[:space:]]*$1[[:space:]]*=.*|$1 = $2;|" "${SERVER_CFG}"
+    else
+        echo "$1 = $2;" >> "${SERVER_CFG}"
+    fi
+}
+
+if [ -f "${SERVER_BIN}" ]; then
+    if [ "${DISABLE_BATTLEYE}" = "1" ]; then
+        [ -f "${STOCK_BIN}" ] || cp "${SERVER_BIN}" "${STOCK_BIN}"
+        perl "${SERVER_ROOT}/patch_be.pl" "${SERVER_BIN}" || \
+            echo "[BattlEye] WARNING: patch failed -- BattlEye may still be active."
+        set_cfg battleye 0
+        echo "[BattlEye] Disabled: binary patched, battleye=0. RCON is unavailable by design."
+    else
+        if [ -f "${STOCK_BIN}" ] && ! cmp -s "${STOCK_BIN}" "${SERVER_BIN}"; then
+            cp "${STOCK_BIN}" "${SERVER_BIN}"
+            chmod +x "${SERVER_BIN}"
+            echo "[BattlEye] Restored stock unpatched binary from $(basename "${STOCK_BIN}")."
+        fi
+        set_cfg battleye 1
+        echo "[BattlEye] Enabled: stock binary, battleye=1. BE RCON available."
+    fi
+fi
+
 # 1. Password Auto-Resolution / Generation
 # Uses ADMIN_PASSWORD from egg config if set; otherwise uses/generates a persistent secret in .admin_secret
 PASS_FILE="${SERVER_ROOT}/.admin_secret"
@@ -45,7 +84,7 @@ chmod 600 "${PASS_FILE}" 2>/dev/null || true
 # Only meaningful when BattlEye actually initializes. patch_be.pl prevents that, so on a
 # patched server BE never loads, nothing binds RCON_PORT and BE RCON clients time out --
 # writing a BEServer_x64.cfg there would just be a config that nothing ever reads.
-if [ "${ENABLE_BATTLEYE}" = "1" ]; then
+if [ "${DISABLE_BATTLEYE}" != "1" ]; then
     mkdir -p "${BATTLEYE_DIR}"
     RCON_FILE="${BATTLEYE_DIR}/BEServer_x64.cfg"
     RCON_PORT="${RCON_PORT:-2304}"
@@ -55,10 +94,9 @@ RestrictRCon 0
 RConPort ${RCON_PORT}
 EOF
     echo "[RCON] Configured BattlEye RCON on port ${RCON_PORT} (RestrictRCon 0)."
-    echo "[RCON] NOTE: RCON only works if patch_be.pl is NOT in the startup command."
 else
-    echo "[RCON] BattlEye disabled (ENABLE_BATTLEYE=0) -- skipping BEServer_x64.cfg."
-    echo "[RCON] Admin access: VPPAdminTools in-game and the init.c slash commands."
+    echo "[RCON] BattlEye disabled (DISABLE_BATTLEYE=1) -- skipping BEServer_x64.cfg."
+    echo "[RCON] Admin access: VPPAdminTools in-game and the init.c ! commands."
 fi
 
 # 2.1 Make the resolved passphrase authoritative in serverDZ.cfg

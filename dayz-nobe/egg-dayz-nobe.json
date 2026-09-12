@@ -14,7 +14,7 @@
     "docker_images": {
         "ghcr.io/parkervcp/games:dayz": "ghcr.io/parkervcp/games:dayz"
     },
-    "startup": "perl ./patch_be.pl ./{{SERVER_BINARY}}; bash ./setup_vpp.sh; ./{{SERVER_BINARY}} -ip=0.0.0.0 -port={{SERVER_PORT}} -profiles=./serverprofile -BEpath=./ -config=serverDZ.cfg -mod=\"{{CLIENT_MODS}}\" -serverMod=\"{{SERVERMODS}}\" {{STARTUP_PARAMS}}",
+    "startup": "bash ./setup_vpp.sh; ./{{SERVER_BINARY}} -ip=0.0.0.0 -port={{SERVER_PORT}} -profiles=./serverprofile -BEpath=./ -config=serverDZ.cfg -mod=\"{{CLIENT_MODS}}\" -serverMod=\"{{SERVERMODS}}\" {{STARTUP_PARAMS}}",
     "config": {
         "files": {
             "serverDZ.cfg": {
@@ -35,7 +35,6 @@
                     "serverTimeAcceleration": "serverTimeAcceleration = {{env.TIME_MULT}};",
                     "serverNightTimeAcceleration": "serverNightTimeAcceleration = {{env.NIGHT_MULT}};",
                     "serverTimePersistent": "serverTimePersistent = {{env.PERSISTENT_TIME}};",
-                    "battleye =": "battleye = {{env.ENABLE_BATTLEYE}};",
                     "allowedFilePatching": "allowedFilePatching = {{env.ALLOWED_FILE_PATCHING}};",
                     "steamQueryPort": "steamQueryPort = {{env.STEAM_QUERY_PORT}};"
                 }
@@ -325,9 +324,9 @@
         },
         {
             "name": "[Advanced] Extra Startup Parameters",
-            "description": "Extra DayZ server parameters. -nobe matches the ENABLE_BATTLEYE=0 default and is redundant-but-explicit: patch_be.pl already stops BattlEye loading. Remove both -nobe and patch_be.pl if you want BattlEye and its RCON back.",
+            "description": "Extra DayZ server parameters. BattlEye is handled by Disable BattlEye, not by -nobe.",
             "env_variable": "STARTUP_PARAMS",
-            "default_value": "-doLogs -adminLog -limitFPS=120 -nobe",
+            "default_value": "-doLogs -adminLog -limitFPS=120",
             "user_viewable": true,
             "user_editable": true,
             "rules": "nullable|string",
@@ -404,10 +403,10 @@
             "field_type": "text"
         },
         {
-            "name": "Enable BattlEye (serverDZ.cfg battleye)",
-            "description": "Default 0. patch_be.pl prevents BattlEye from initializing at all, so BE cannot enforce anything AND BE RCON cannot work (nothing binds RCON_PORT; bercon-cli times out). Leaving battleye=1 would just be a config nothing reads. Set to 1 ONLY together with removing patch_be.pl from the startup command, which restores RCON along with global-ban and VAC kicks.",
-            "env_variable": "ENABLE_BATTLEYE",
-            "default_value": "0",
+            "name": "Disable BattlEye",
+            "description": "1 = BattlEye off: server binary patched, battleye=0. No bans, no kicks, no RCON.\n0 = BattlEye on: stock binary restored, battleye=1, BE RCON works.\nTakes effect on restart.",
+            "env_variable": "DISABLE_BATTLEYE",
+            "default_value": "1",
             "user_viewable": true,
             "user_editable": true,
             "rules": "required|boolean",
