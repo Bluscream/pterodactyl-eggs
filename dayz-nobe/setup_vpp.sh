@@ -10,7 +10,14 @@ KEYS_DIR="${SERVER_ROOT}/keys"
 BATTLEYE_DIR="${SERVER_ROOT}/battleye"
 VPP_BASE="${SERVER_PROFILE}/VPPAdminTools"
 VPP_SUPERADMINS_DIR="${VPP_BASE}/Permissions/SuperAdmins"
-MISSION_INIT="${SERVER_ROOT}/mpmissions/dayzOffline.chernarusplus/init.c"
+SERVER_CFG="${SERVER_ROOT}/serverDZ.cfg"
+
+# Mission directory is read from serverDZ.cfg's Missions->DayZ->template rather than
+# hardcoded: a server that switches to dayzOffline.enoch or .sakhal would otherwise
+# silently write the custom init into a mission that is not being loaded.
+MISSION_NAME="$(sed -n 's/^[[:space:]]*template[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' "${SERVER_CFG}" 2>/dev/null | head -1)"
+MISSION_NAME="${MISSION_NAME:-dayzOffline.chernarusplus}"
+MISSION_INIT="${SERVER_ROOT}/mpmissions/${MISSION_NAME}/init.c"
 
 # 1. Password Auto-Resolution / Generation
 # Uses ADMIN_PASSWORD from egg config if set; otherwise uses/generates a persistent secret in .admin_secret
@@ -50,7 +57,6 @@ echo "[RCON] Configured BattlEye RCON on port ${RCON_PORT} (RestrictRCon 0)."
 # The panel's config parser rewrites passwordAdmin from the (possibly empty) ADMIN_PASSWORD
 # egg variable before every boot. This runs after the parser, so the value written here wins
 # and serverDZ.cfg, BEServer_x64.cfg and the VPP credentials all agree.
-SERVER_CFG="${SERVER_ROOT}/serverDZ.cfg"
 if [ -f "${SERVER_CFG}" ]; then
     if grep -q '^[[:space:]]*passwordAdmin[[:space:]]*=' "${SERVER_CFG}"; then
         sed -i "s|^[[:space:]]*passwordAdmin[[:space:]]*=.*|passwordAdmin = \"${ADMIN_PASSWORD}\";|" "${SERVER_CFG}"

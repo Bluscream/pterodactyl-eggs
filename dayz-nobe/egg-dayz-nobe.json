@@ -37,8 +37,7 @@
                     "serverTimePersistent": "serverTimePersistent = {{env.PERSISTENT_TIME}};",
                     "battleye =": "battleye = {{env.ENABLE_BATTLEYE}};",
                     "allowedFilePatching": "allowedFilePatching = {{env.ALLOWED_FILE_PATCHING}};",
-                    "steamQueryPort": "steamQueryPort = {{env.STEAM_QUERY_PORT}};",
-                    "clientPort": "clientPort = {{env.CLIENT_PORT}};"
+                    "steamQueryPort": "steamQueryPort = {{env.STEAM_QUERY_PORT}};"
                 }
             },
             "battleye/BEServer_x64.cfg": {
@@ -176,9 +175,9 @@
         },
         {
             "name": "Additional Mods",
-            "description": "A semicolon-separated list of mod folders to load from the root directory. Useful for loading manually uploaded mods. Any mods in this list that are in \"@workshopID\" form will also be included in Automatic Updates (if enabled). NO capital letters, spaces, or folders starting with a number! (ex. @1559212036;@1879460278;)",
+            "description": "Workshop mod IDs. Defaults to Community Framework (1559212036) + VPPAdminTools (1828439124), which are what ENABLE_VPP_ADMIN=1 requires.",
             "env_variable": "MODIFICATIONS",
-            "default_value": "@1559212036;@1879460278;",
+            "default_value": "@1559212036;@1828439124;",
             "user_viewable": true,
             "user_editable": true,
             "rules": "nullable|string",
@@ -326,7 +325,7 @@
         },
         {
             "name": "[Advanced] Extra Startup Parameters",
-            "description": "See https://community.bistudio.com/wiki/DayZ:Server_Configuration#Launch_Parameters for more info on valid flags for this field.",
+            "description": "Extra DayZ server parameters. Do NOT add -nobe -- it disables BattlEye entirely and takes RCON down with it. See ENABLE_BATTLEYE.",
             "env_variable": "STARTUP_PARAMS",
             "default_value": "-doLogs -limitFPS=120 -nobe",
             "user_viewable": true,
@@ -336,9 +335,9 @@
         },
         {
             "name": "[Advanced] Server Binary",
-            "description": "Cannot currently be changed. Left in case other branches with different executable names are introduced at a later date.",
+            "description": "Linux ELF server binary. The runtime image runs the native Linux build; DayZServer_x64.exe is the Windows name and is not used here.",
             "env_variable": "SERVER_BINARY",
-            "default_value": "DayZServer_x64.exe",
+            "default_value": "DayZServer",
             "user_viewable": true,
             "user_editable": true,
             "rules": "required|string",
@@ -395,16 +394,6 @@
             "field_type": "text"
         },
         {
-            "name": "Client Connect Port",
-            "description": "Value written to clientPort in serverDZ.cfg. Must NOT equal RCON_PORT (2304) -- they previously both defaulted to 2304. 2302=game, 2303=clientPort, 2304=BE RCon, 2305=steamQueryPort.",
-            "env_variable": "CLIENT_PORT",
-            "default_value": "2303",
-            "user_viewable": true,
-            "user_editable": true,
-            "rules": "required|integer",
-            "field_type": "text"
-        },
-        {
             "name": "RCON Port",
             "description": "Port used for BattlEye RCON remote administration (RConPort in BEServer_x64.cfg). Defaults to 2304.",
             "env_variable": "RCON_PORT",
@@ -416,9 +405,9 @@
         },
         {
             "name": "Enable BattlEye (serverDZ.cfg battleye)",
-            "description": "Sets battleye = 1 or 0 in serverDZ.cfg. Set to 1 to enable BattlEye server library and RCON; set to 0 to completely disable BattlEye engine initialization.",
+            "description": "Keep this at 1. BattlEye RCON *is* BattlEye: with battleye=0 (or -nobe in STARTUP_PARAMS) beserver_x64.so never loads, nothing listens on RCON_PORT, and bercon-cli/VPP RCON stop working. Enforcement is already neutered by the patch_be.pl binary patch, so BE loads, serves RCON, and kicks nobody. Do NOT add -nobe to STARTUP_PARAMS.",
             "env_variable": "ENABLE_BATTLEYE",
-            "default_value": "0",
+            "default_value": "1",
             "user_viewable": true,
             "user_editable": true,
             "rules": "required|boolean",
