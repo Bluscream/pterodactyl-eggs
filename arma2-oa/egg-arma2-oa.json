@@ -1,0 +1,185 @@
+{
+  "_comment": "Arma 2: Operation Arrowhead dedicated server (Linux). DRAFT -- see README.md. Startup and layout derived from Bluscream/AMPTemplates arma2oa.kvp and the 1.59.84216 BETA Linux server package.",
+  "meta": {
+    "version": "PTDL_v2",
+    "update_url": null
+  },
+  "exported_at": "2026-09-13T17:02:37+00:00",
+  "name": "Arma 2: Operation Arrowhead",
+  "author": "bluscreamlp@gmail.com",
+  "description": "Arma 2: Operation Arrowhead dedicated server on Linux, using the 1.59.84216 BETA standalone server package. Bohemia only ships a Windows dedicated server via Steam (appid 33935), so the Linux binary is overlaid from a mirror and the game data comes from appid 33930.",
+  "features": [
+    "steam_disk_space"
+  ],
+  "docker_images": {
+    "Debian (has 32-bit libs)": "ghcr.io/parkervcp/games:source",
+    "Debian (generic)": "ghcr.io/parkervcp/yolks:debian"
+  },
+  "file_denylist": [],
+  "startup": "./server -server -config=server.cfg -cfg=basic.cfg -port={{SERVER_PORT}} -ip=0.0.0.0 -profiles=./A2Master -bepath=./battleye -pid=server.pid -world={{WORLD}} -mod=\"{{CLIENT_MODS}}\" -serverMod=\"{{SERVERMODS}}\" {{STARTUP_PARAMS}}",
+  "config": {
+    "files": "{\"server.cfg\":{\"parser\":\"file\",\"find\":{\"hostname\":\"hostname = \\\"{{env.SERVER_HOSTNAME}}\\\";\",\"password \":\"password = \\\"{{env.SERVER_PASSWORD}}\\\";\",\"passwordAdmin\":\"passwordAdmin = \\\"{{env.ADMIN_PASSWORD}}\\\";\",\"maxPlayers\":\"maxPlayers = {{env.MAX_PLAYERS}};\"}}}",
+    "startup": "{\"done\":\"Dedicated host created.\"}",
+    "logs": "{}",
+    "stop": "^C"
+  },
+  "scripts": {
+    "installation": {
+      "script": "#!/bin/bash\n# Pterodactyl install script -- Arma 2: Operation Arrowhead dedicated server (Linux)\n#\n# Bohemia never shipped an A2OA Linux server through Steam: appid 33935 is the Windows\n# dedicated server. The Linux build is the 1.59.84216 BETA standalone package, mirrored at\n# Bluscream/arma2-oa-linux-server. So this install does three things in order:\n#\n#   1. steamcmd the Windows game data (33930, plus 33900 for Arma 2 base content)\n#   2. overlay the Linux server package (the `server` ELF + expansion/battleye/beserver.so)\n#   3. run the package's own conversion, which lowercases every filename\n#\n# Step 3 is not optional. The engine resolves paths lowercase internally, and Steam delivers\n# Windows-cased files (Addons/, Expansion/, Dta/). Without the conversion the server starts\n# and then fails to find addons. The upstream `install` script compiles tolower.c with gcc and\n# runs it; we do the same rather than reimplementing it, so the behaviour matches upstream.\n\nset -e\n\napt -y update\napt -y --no-install-recommends install curl gcc ca-certificates bzip2 lib32gcc-s1 libstdc++6:i386 lib32z1 || \\\n  apt -y --no-install-recommends install curl gcc ca-certificates bzip2 lib32gcc-s1\n\n# A2OA is not available to the anonymous Steam user -- ownership of Arma 2 and Operation\n# Arrowhead is required on the account used here.\nif [[ \"${STEAM_USER}\" == \"\" ]] || [[ \"${STEAM_USER}\" == \"anonymous\" ]] || [[ \"${STEAM_PASS}\" == \"\" ]]; then\n    echo \"INSTALLATION ERROR: a real Steam account that owns Arma 2 and Arma 2: Operation\"\n    echo \"  Arrowhead is required. The anonymous account cannot download appid 33930.\"\n    exit 1\nfi\n\ncd /tmp\nmkdir -p /mnt/server/steamcmd /mnt/server/steamapps\ncurl -sSL -o steamcmd.tar.gz https://steamcdn-a.akamaihd.net/client/installer/steamcmd_linux.tar.gz\ntar -xzf steamcmd.tar.gz -C /mnt/server/steamcmd\ncd /mnt/server/steamcmd\n\nchown -R root:root /mnt\nexport HOME=/mnt/server\n\n# 33930 = Arma 2: Operation Arrowhead (game data). 33900 = Arma 2 (base content), needed for\n# Combined Operations and by every DayZ Mod build. DOWNLOAD_ARMA2_BASE=0 skips it for a\n# standalone OA server that will never load A2 content.\n./steamcmd.sh +force_install_dir /mnt/server \"+login \\\"${STEAM_USER}\\\" \\\"${STEAM_PASS}\\\"\" \\\n    +app_update 33930 ${STEAMCMD_EXTRA_FLAGS} validate +quit\n\nif [[ \"${DOWNLOAD_ARMA2_BASE}\" == \"1\" ]]; then\n    ./steamcmd.sh +force_install_dir /mnt/server \"+login \\\"${STEAM_USER}\\\" \\\"${STEAM_PASS}\\\"\" \\\n        +app_update 33900 ${STEAMCMD_EXTRA_FLAGS} validate +quit\nfi\n\nmkdir -p /mnt/server/.steam/sdk32\ncp -v linux32/steamclient.so /mnt/server/.steam/sdk32/steamclient.so || true\n\n# Linux server overlay.\ncd /mnt/server\necho \"Fetching the Linux server package from ${A2OA_SERVER_URL}...\"\ncurl -sSL -o /tmp/a2oa-server.tar.bz2 \"${A2OA_SERVER_URL}\"\ntar -xjf /tmp/a2oa-server.tar.bz2 -C /mnt/server\nrm -f /tmp/a2oa-server.tar.bz2\n\n# Lowercase conversion. Upstream `install` also deletes *.exe *.chm *.dll, which is correct\n# here -- a 32-bit ELF cannot load a PE DLL, so the Windows leftovers are dead weight.\nif [[ -f /mnt/server/install ]]; then\n    chmod +x /mnt/server/install\n    cd /mnt/server && ./install\nelse\n    echo \"WARNING: the server package contained no 'install' script -- filenames were NOT\"\n    echo \"  lowercased. The server will very likely fail to load its addons.\"\nfi\n\nchmod +x /mnt/server/server 2>/dev/null || true\n\n# Config templates. Only written when absent, so a reinstall never clobbers a live config.\ncd /mnt/server\n[[ -f server.cfg ]] || curl -sSL -o server.cfg \"${SERVER_CFG_URL}\"\n[[ -f basic.cfg ]]  || curl -sSL -o basic.cfg  \"${BASIC_CFG_URL}\"\nchmod 644 server.cfg basic.cfg\n\nmkdir -p /mnt/server/A2Master /mnt/server/battleye\n\necho \"-----------------------------------------\"\necho \"Installation completed.\"\necho \"  server binary : ./server (32-bit i386)\"\necho \"  profiles      : ./A2Master\"\necho \"  configs       : server.cfg, basic.cfg\"\necho \"-----------------------------------------\"\n",
+      "container": "ghcr.io/parkervcp/installers:debian",
+      "entrypoint": "/bin/bash"
+    }
+  },
+  "variables": [
+    {
+      "name": "[REQUIRED] Steam Username",
+      "description": "A real Steam account that OWNS Arma 2 and Arma 2: Operation Arrowhead. The anonymous account cannot download appid 33930.",
+      "env_variable": "STEAM_USER",
+      "default_value": "",
+      "user_viewable": false,
+      "user_editable": false,
+      "rules": "required|string",
+      "field_type": "text"
+    },
+    {
+      "name": "[REQUIRED] Steam Password",
+      "description": "Password for the Steam account above. A Steam Guard protected account will fail to download non-interactively.",
+      "env_variable": "STEAM_PASS",
+      "default_value": "",
+      "user_viewable": false,
+      "user_editable": false,
+      "rules": "required|string",
+      "field_type": "text"
+    },
+    {
+      "name": "Server Hostname",
+      "description": "Server name shown in the browser.",
+      "env_variable": "SERVER_HOSTNAME",
+      "default_value": "Arma 2 OA Server",
+      "user_viewable": true,
+      "user_editable": true,
+      "rules": "nullable|string",
+      "field_type": "text"
+    },
+    {
+      "name": "Max Players",
+      "description": "Maximum simultaneous players.",
+      "env_variable": "MAX_PLAYERS",
+      "default_value": "64",
+      "user_viewable": true,
+      "user_editable": true,
+      "rules": "required|integer|gt:0",
+      "field_type": "text"
+    },
+    {
+      "name": "Server Password",
+      "description": "Join password. Leave empty for a public server.",
+      "env_variable": "SERVER_PASSWORD",
+      "default_value": "",
+      "user_viewable": true,
+      "user_editable": true,
+      "rules": "nullable|string",
+      "field_type": "text"
+    },
+    {
+      "name": "Admin Password",
+      "description": "Password for in-game #login admin.",
+      "env_variable": "ADMIN_PASSWORD",
+      "default_value": "",
+      "user_viewable": true,
+      "user_editable": true,
+      "rules": "nullable|string",
+      "field_type": "text"
+    },
+    {
+      "name": "World",
+      "description": "Startup world. 'empty' lets the mission choose; a mod-driven server (DayZ Mod uses chernarus) normally overrides this.",
+      "env_variable": "WORLD",
+      "default_value": "empty",
+      "user_viewable": true,
+      "user_editable": true,
+      "rules": "required|string",
+      "field_type": "text"
+    },
+    {
+      "name": "Client Mods",
+      "description": "Semicolon-separated mod folders loaded for everyone, e.g. @DayZ;@CBA. Passed as -mod=.",
+      "env_variable": "CLIENT_MODS",
+      "default_value": "",
+      "user_viewable": true,
+      "user_editable": true,
+      "rules": "nullable|string",
+      "field_type": "text"
+    },
+    {
+      "name": "Server-Side Mods",
+      "description": "Semicolon-separated server-only mod folders. Passed as -serverMod=.",
+      "env_variable": "SERVERMODS",
+      "default_value": "",
+      "user_viewable": true,
+      "user_editable": true,
+      "rules": "nullable|string",
+      "field_type": "text"
+    },
+    {
+      "name": "Extra Startup Parameters",
+      "description": "Appended verbatim. -cpuCount and -maxMem are the useful ones; the 32-bit engine cannot address more than ~2 GB regardless.",
+      "env_variable": "STARTUP_PARAMS",
+      "default_value": "-cpuCount=2 -noSound",
+      "user_viewable": true,
+      "user_editable": true,
+      "rules": "nullable|string",
+      "field_type": "text"
+    },
+    {
+      "name": "Download Arma 2 Base Content",
+      "description": "Also download appid 33900 (Arma 2). Required for Combined Operations and for every DayZ Mod build. Set 0 for a standalone OA server.",
+      "env_variable": "DOWNLOAD_ARMA2_BASE",
+      "default_value": "1",
+      "user_viewable": true,
+      "user_editable": false,
+      "rules": "required|boolean",
+      "field_type": "text"
+    },
+    {
+      "name": "[Advanced] Linux Server Package URL",
+      "description": "The A2OA Linux server package. Bohemia's 1.59.84216 BETA build, mirrored because it is no longer distributed.",
+      "env_variable": "A2OA_SERVER_URL",
+      "default_value": "https://github.com/Bluscream/arma2-oa-linux-server/releases/latest/download/a2oa-server.tar.bz2",
+      "user_viewable": false,
+      "user_editable": false,
+      "rules": "required|url",
+      "field_type": "text"
+    },
+    {
+      "name": "[Advanced] server.cfg URL",
+      "description": "Fetched on install only when server.cfg is absent.",
+      "env_variable": "SERVER_CFG_URL",
+      "default_value": "https://github.com/Bluscream/AMPTemplates/raw/dev/arma2oaserver.cfg",
+      "user_viewable": false,
+      "user_editable": false,
+      "rules": "required|url",
+      "field_type": "text"
+    },
+    {
+      "name": "[Advanced] basic.cfg URL",
+      "description": "Fetched on install only when basic.cfg is absent.",
+      "env_variable": "BASIC_CFG_URL",
+      "default_value": "https://github.com/Bluscream/AMPTemplates/raw/dev/arma2oabasic.cfg",
+      "user_viewable": false,
+      "user_editable": false,
+      "rules": "required|url",
+      "field_type": "text"
+    },
+    {
+      "name": "[Advanced] Extra Flags for SteamCMD",
+      "description": "Appended to both app_update calls.",
+      "env_variable": "STEAMCMD_EXTRA_FLAGS",
+      "default_value": "",
+      "user_viewable": false,
+      "user_editable": false,
+      "rules": "nullable|string",
+      "field_type": "text"
+    }
+  ]
+}

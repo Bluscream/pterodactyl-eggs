@@ -1,0 +1,275 @@
+{
+  "_comment": "DayZ Mod on Arma 2: Operation Arrowhead, Linux. DRAFT -- UNTESTED, see README.md. Layout derived from denisio/Dayz-Linux-Server (the only maintained Linux DayZ Mod layout) and Bluscream/AMPTemplates arma2oa.kvp.",
+  "meta": {
+    "version": "PTDL_v2",
+    "update_url": null
+  },
+  "exported_at": "2026-09-13T17:13:10+00:00",
+  "name": "DayZ Mod (Arma 2 OA)",
+  "author": "bluscreamlp@gmail.com",
+  "description": "The original DayZ Mod running on an Arma 2: Operation Arrowhead Linux dedicated server. Persistence uses the @hive + writer.pl Perl path, because the official Hive extension is a Windows DLL with no Linux build. Requires an EXTERNAL MySQL database -- see README.",
+  "features": [
+    "steam_disk_space"
+  ],
+  "docker_images": {
+    "Debian (has 32-bit libs)": "ghcr.io/parkervcp/games:source",
+    "Debian (generic)": "ghcr.io/parkervcp/yolks:debian"
+  },
+  "file_denylist": [],
+  "startup": "bash ./boot.sh -server -config={{PROFILE_DIR}}/server.cfg -cfg={{PROFILE_DIR}}/basic.cfg -port={{SERVER_PORT}} -ip=0.0.0.0 -profiles={{PROFILE_DIR}} -name={{PROFILE_DIR}} -bepath=./battleye -beta=\"{{BETA_PATH}}\" -world={{WORLD}} -mod=\"{{CLIENT_MODS}}\" -serverMod=\"{{SERVERMODS}}\" -pid=server.pid {{STARTUP_PARAMS}}",
+  "config": {
+    "files": "{\"cfgdayz/server.cfg\":{\"parser\":\"file\",\"find\":{\"hostname\":\"hostname = \\\"{{env.SERVER_HOSTNAME}}\\\";\",\"password \":\"password = \\\"{{env.SERVER_PASSWORD}}\\\";\",\"passwordAdmin\":\"passwordAdmin = \\\"{{env.ADMIN_PASSWORD}}\\\";\",\"maxPlayers\":\"maxPlayers = {{env.MAX_PLAYERS}};\"}}}",
+    "startup": "{\"done\":\"Dedicated host created.\"}",
+    "logs": "{}",
+    "stop": "^C"
+  },
+  "scripts": {
+    "installation": {
+      "script": "#!/bin/bash\n# Pterodactyl install script -- DayZ Mod (Arma 2: Operation Arrowhead) dedicated server, Linux\n#\n# DayZ Mod has no dedicated-server appid. A working server is assembled from four pieces:\n#\n#   1. Arma 2 OA game data       -- appid 33930 (Windows data; the engine binary is separate)\n#   2. Arma 2 base content       -- appid 33900 (DayZ Mod loads A2 buildings/vehicles)\n#   3. The Linux server engine   -- 1.59.84216 BETA standalone package (mirror)\n#   4. @dayz + @hive + writer.pl -- the mod itself and the Linux persistence path\n#\n# Piece 4 is the awkward one. The official Hive is a Windows DLL with no Linux build, so the\n# Linux route is @hive plus a Perl writer that the server's stdout is piped into. That comes\n# from denisio/Dayz-Linux-Server, which is the only maintained Linux DayZ Mod server layout.\n# It targets DayZ Mod 1.8.0.3 -- pairing it with a much newer @dayz is untested.\n#\n# MySQL is NOT installed here. Pterodactyl runs one process per container, so the database has\n# to live elsewhere; point HIVE_DB_* at it and load database.sql once by hand.\n\nset -e\n\napt -y update\napt -y --no-install-recommends install curl gcc ca-certificates bzip2 unzip perl libjson-xs-perl \\\n    lib32gcc-s1 lib32stdc++6 lib32z1 || \\\n  apt -y --no-install-recommends install curl gcc ca-certificates bzip2 unzip perl lib32gcc-s1\n\nif [[ \"${STEAM_USER}\" == \"\" ]] || [[ \"${STEAM_USER}\" == \"anonymous\" ]] || [[ \"${STEAM_PASS}\" == \"\" ]]; then\n    echo \"INSTALLATION ERROR: a real Steam account owning Arma 2 AND Operation Arrowhead is\"\n    echo \"  required. Neither 33900 nor 33930 is available to the anonymous account.\"\n    exit 1\nfi\n\ncd /tmp\nmkdir -p /mnt/server/steamcmd /mnt/server/steamapps\ncurl -sSL -o steamcmd.tar.gz https://steamcdn-a.akamaihd.net/client/installer/steamcmd_linux.tar.gz\ntar -xzf steamcmd.tar.gz -C /mnt/server/steamcmd\ncd /mnt/server/steamcmd\n\nchown -R root:root /mnt\nexport HOME=/mnt/server\n\n# --- 1 + 2. Game data -------------------------------------------------------------------\n./steamcmd.sh +force_install_dir /mnt/server \"+login \\\"${STEAM_USER}\\\" \\\"${STEAM_PASS}\\\"\" \\\n    +app_update 33930 ${STEAMCMD_EXTRA_FLAGS} validate +quit\n./steamcmd.sh +force_install_dir /mnt/server \"+login \\\"${STEAM_USER}\\\" \\\"${STEAM_PASS}\\\"\" \\\n    +app_update 33900 ${STEAMCMD_EXTRA_FLAGS} validate +quit\n\nmkdir -p /mnt/server/.steam/sdk32\ncp -v linux32/steamclient.so /mnt/server/.steam/sdk32/steamclient.so || true\n\n# --- 3. Linux server engine -------------------------------------------------------------\ncd /mnt/server\ncurl -sSL -o /tmp/a2oa-server.tar.bz2 \"${A2OA_SERVER_URL}\"\ntar -xjf /tmp/a2oa-server.tar.bz2 -C /mnt/server\nrm -f /tmp/a2oa-server.tar.bz2\n\n# --- 4. The mod and the Linux Hive ------------------------------------------------------\n# @dayz: either straight from Steam (appid 224580 is free to own but still needs a real\n# account), or from a URL, for the many community builds Steam does not carry.\nif [[ -n \"${DAYZ_MOD_URL}\" ]]; then\n    echo \"Fetching @dayz from ${DAYZ_MOD_URL}...\"\n    cd /tmp\n    curl -sSL -o dayzmod.archive \"${DAYZ_MOD_URL}\"\n    mkdir -p /tmp/dayzmod && cd /tmp/dayzmod\n    if file /tmp/dayzmod.archive | grep -qi zip; then unzip -oq /tmp/dayzmod.archive\n    elif file /tmp/dayzmod.archive | grep -qi bzip2; then tar -xjf /tmp/dayzmod.archive\n    else tar -xzf /tmp/dayzmod.archive 2>/dev/null || unzip -oq /tmp/dayzmod.archive; fi\n    cp -rv /tmp/dayzmod/* /mnt/server/ 2>/dev/null || true\n    rm -rf /tmp/dayzmod /tmp/dayzmod.archive\nelif [[ \"${DAYZ_MOD_FROM_STEAM}\" == \"1\" ]]; then\n    cd /mnt/server/steamcmd\n    ./steamcmd.sh +force_install_dir /mnt/server/_dayzmod \\\n        \"+login \\\"${STEAM_USER}\\\" \\\"${STEAM_PASS}\\\"\" +app_update 224580 validate +quit || \\\n        echo \"WARNING: appid 224580 download failed -- supply DAYZ_MOD_URL instead.\"\n    # Steam lays the mod out under a versioned folder; move any @dayz* it produced up.\n    find /mnt/server/_dayzmod -maxdepth 3 -iname '@dayz*' -type d -exec cp -r {} /mnt/server/ \\; 2>/dev/null || true\n    rm -rf /mnt/server/_dayzmod\nelse\n    echo \"NOTE: no @dayz source configured (DAYZ_MOD_URL empty, DAYZ_MOD_FROM_STEAM=0).\"\n    echo \"  Upload @dayz into the server root before starting.\"\nfi\n\n# boot.sh, delivered the same way dayzsa-nobe does it: pinned to a ref so reinstalls are\n# reproducible, with --fail because curl otherwise exits 0 on a 404 and writes the error body\n# into the destination file. Bump RAW_REF when boot.sh changes.\nRAW_REF=\"master\"\nRAW_BASE=\"https://raw.githubusercontent.com/bluscream/pterodactyl-eggs/${RAW_REF}/dayz-mod\"\n\necho \"Fetching boot.sh...\"\ncurl --fail -sSL -o /mnt/server/boot.sh.tmp \"${RAW_BASE}/boot.sh\" || {\n    echo \"FATAL: could not download boot.sh from ${RAW_BASE}\"\n    rm -f /mnt/server/boot.sh.tmp\n    exit 1\n}\nmv /mnt/server/boot.sh.tmp /mnt/server/boot.sh\n\n# @hive + writer.pl + tolower.c + the SQL schema, from the Linux server layout.\ncd /tmp\ncurl -sSL -o linuxsrv.tar.gz \"${HIVE_REPO_URL}\"\nmkdir -p /tmp/linuxsrv && tar -xzf linuxsrv.tar.gz -C /tmp/linuxsrv --strip-components=1\nfor item in @hive writer.pl restarter.pl tolower.c install database.sql cfgdayz mpmissions expansion cache; do\n    if [[ -e \"/tmp/linuxsrv/${item}\" ]]; then\n        cp -rn \"/tmp/linuxsrv/${item}\" /mnt/server/ 2>/dev/null || true\n    fi\ndone\nrm -rf /tmp/linuxsrv /tmp/linuxsrv.tar.gz\n\n# --- Lowercase conversion ----------------------------------------------------------------\n# Mandatory, and it must run AFTER every piece is in place. Any uppercase filename crashes\n# the server at load time.\ncd /mnt/server\nif [[ -f tolower.c ]]; then\n    gcc -O -o tolower tolower.c && ./tolower || echo \"WARNING: tolower conversion failed.\"\nfi\nrm -f ./*.exe ./*.chm ./*.dll 2>/dev/null || true\nfind ./battleye ./expansion -maxdepth 2 -name '*.dll' -delete 2>/dev/null || true\n\nchmod +x /mnt/server/server /mnt/server/boot.sh /mnt/server/writer.pl 2>/dev/null || true\nmkdir -p /mnt/server/cfgdayz /mnt/server/battleye\n\necho \"-----------------------------------------\"\necho \"Installation completed.\"\necho\necho \"REMAINING MANUAL STEP -- the server will run but will not persist until this is done:\"\necho \"  1. Create a MySQL database and user on a host this container can reach.\"\necho \"  2. Load /home/container/database.sql into it.\"\necho \"  3. Import object_init_data.txt into Object_DATA and Object_init_DATA.\"\necho \"  4. Point the Hive config at that database (HIVE_DB_* variables).\"\necho \"-----------------------------------------\"\n",
+      "container": "ghcr.io/parkervcp/installers:debian",
+      "entrypoint": "/bin/bash"
+    }
+  },
+  "variables": [
+    {
+      "name": "[REQUIRED] Steam Username",
+      "description": "A real Steam account that OWNS Arma 2 and Arma 2: Operation Arrowhead. Neither appid is available anonymously.",
+      "env_variable": "STEAM_USER",
+      "default_value": "",
+      "user_viewable": false,
+      "user_editable": false,
+      "rules": "required|string",
+      "field_type": "text"
+    },
+    {
+      "name": "[REQUIRED] Steam Password",
+      "description": "Password for the account above. Steam Guard will break the non-interactive download.",
+      "env_variable": "STEAM_PASS",
+      "default_value": "",
+      "user_viewable": false,
+      "user_editable": false,
+      "rules": "required|string",
+      "field_type": "text"
+    },
+    {
+      "name": "Server Hostname",
+      "description": "Server name shown in the browser.",
+      "env_variable": "SERVER_HOSTNAME",
+      "default_value": "DayZ Mod Server",
+      "user_viewable": true,
+      "user_editable": true,
+      "rules": "nullable|string",
+      "field_type": "text"
+    },
+    {
+      "name": "Max Players",
+      "description": "Maximum simultaneous players. DayZ Mod servers historically ran 50-60.",
+      "env_variable": "MAX_PLAYERS",
+      "default_value": "50",
+      "user_viewable": true,
+      "user_editable": true,
+      "rules": "required|integer|gt:0",
+      "field_type": "text"
+    },
+    {
+      "name": "Server Password",
+      "description": "Join password. Empty for a public server.",
+      "env_variable": "SERVER_PASSWORD",
+      "default_value": "",
+      "user_viewable": true,
+      "user_editable": true,
+      "rules": "nullable|string",
+      "field_type": "text"
+    },
+    {
+      "name": "Admin Password",
+      "description": "Password for in-game #login admin.",
+      "env_variable": "ADMIN_PASSWORD",
+      "default_value": "",
+      "user_viewable": true,
+      "user_editable": true,
+      "rules": "nullable|string",
+      "field_type": "text"
+    },
+    {
+      "name": "World",
+      "description": "Map. Chernarus for stock DayZ Mod; Takistan/Namalsk etc. need the matching map addon.",
+      "env_variable": "WORLD",
+      "default_value": "Chernarus",
+      "user_viewable": true,
+      "user_editable": true,
+      "rules": "required|string",
+      "field_type": "text"
+    },
+    {
+      "name": "Mods",
+      "description": "Mod load order, semicolon separated. @hive MUST come before @dayz -- the Hive extension has to register before the mod queries it.",
+      "env_variable": "CLIENT_MODS",
+      "default_value": "@hive;@dayz",
+      "user_viewable": true,
+      "user_editable": true,
+      "rules": "required|string",
+      "field_type": "text"
+    },
+    {
+      "name": "Server-Side Mods",
+      "description": "Server-only mod folders, passed as -serverMod=.",
+      "env_variable": "SERVERMODS",
+      "default_value": "",
+      "user_viewable": true,
+      "user_editable": true,
+      "rules": "nullable|string",
+      "field_type": "text"
+    },
+    {
+      "name": "Beta Patch Path",
+      "description": "The OA beta patch chain, passed as -beta=. DayZ Mod requires the beta executable path; without it the mod fails to load. Rarely needs changing.",
+      "env_variable": "BETA_PATH",
+      "default_value": "expansion/beta;expansion/beta/expansion",
+      "user_viewable": true,
+      "user_editable": true,
+      "rules": "required|string",
+      "field_type": "text"
+    },
+    {
+      "name": "Profile Directory",
+      "description": "Profile and config directory, used for both -profiles and -name. The config file paths above are relative to it.",
+      "env_variable": "PROFILE_DIR",
+      "default_value": "cfgdayz",
+      "user_viewable": true,
+      "user_editable": true,
+      "rules": "required|string",
+      "field_type": "text"
+    },
+    {
+      "name": "Extra Startup Parameters",
+      "description": "Appended verbatim. -showScriptErrors is useful while setting a server up; the 32-bit engine cannot use more than ~2 GB whatever -maxMem says.",
+      "env_variable": "STARTUP_PARAMS",
+      "default_value": "-noSound -noPause -cpuCount=2 -showScriptErrors",
+      "user_viewable": true,
+      "user_editable": true,
+      "rules": "nullable|string",
+      "field_type": "text"
+    },
+    {
+      "name": "Server Binary",
+      "description": "The Linux engine binary. This is the ELF executable from the server package, NOT the arma2oaserver wrapper (that wrapper is a start/stop/watchdog init script and does not run in the foreground).",
+      "env_variable": "SERVER_BINARY",
+      "default_value": "server",
+      "user_viewable": true,
+      "user_editable": true,
+      "rules": "required|string",
+      "field_type": "text"
+    },
+    {
+      "name": "Enable Hive Persistence",
+      "description": "Pipe server output through ./writer.pl so player and vehicle state is written to MySQL. Set 0 to run a throwaway non-persistent server.",
+      "env_variable": "HIVE_ENABLED",
+      "default_value": "1",
+      "user_viewable": true,
+      "user_editable": true,
+      "rules": "required|boolean",
+      "field_type": "text"
+    },
+    {
+      "name": "Hive DB Host",
+      "description": "MySQL host for the Hive. Must be reachable FROM the container -- 127.0.0.1 will not work, since nothing but the game server runs in it.",
+      "env_variable": "HIVE_DB_HOST",
+      "default_value": "",
+      "user_viewable": true,
+      "user_editable": true,
+      "rules": "nullable|string",
+      "field_type": "text"
+    },
+    {
+      "name": "Hive DB Port",
+      "description": "MySQL port.",
+      "env_variable": "HIVE_DB_PORT",
+      "default_value": "3306",
+      "user_viewable": true,
+      "user_editable": true,
+      "rules": "required|integer",
+      "field_type": "text"
+    },
+    {
+      "name": "Hive DB Name",
+      "description": "Database holding the schema from database.sql.",
+      "env_variable": "HIVE_DB_NAME",
+      "default_value": "dayz",
+      "user_viewable": true,
+      "user_editable": true,
+      "rules": "nullable|string",
+      "field_type": "text"
+    },
+    {
+      "name": "Hive DB User",
+      "description": "MySQL username.",
+      "env_variable": "HIVE_DB_USER",
+      "default_value": "dayz",
+      "user_viewable": true,
+      "user_editable": true,
+      "rules": "nullable|string",
+      "field_type": "text"
+    },
+    {
+      "name": "Hive DB Password",
+      "description": "MySQL password.",
+      "env_variable": "HIVE_DB_PASS",
+      "default_value": "",
+      "user_viewable": true,
+      "user_editable": true,
+      "rules": "nullable|string",
+      "field_type": "text"
+    },
+    {
+      "name": "DayZ Mod Download URL",
+      "description": "Archive containing @dayz. Takes precedence over the Steam download, and is how you run a specific community build (1.8.0.3 pairs with the @hive here).",
+      "env_variable": "DAYZ_MOD_URL",
+      "default_value": "",
+      "user_viewable": true,
+      "user_editable": true,
+      "rules": "nullable|url",
+      "field_type": "text"
+    },
+    {
+      "name": "Get DayZ Mod from Steam",
+      "description": "Fall back to appid 224580 when no URL is set. Free to own, but still needs the real account, and the Steam build is newer than the @hive this egg installs.",
+      "env_variable": "DAYZ_MOD_FROM_STEAM",
+      "default_value": "1",
+      "user_viewable": true,
+      "user_editable": true,
+      "rules": "required|boolean",
+      "field_type": "text"
+    },
+    {
+      "name": "[Advanced] Linux Server Package URL",
+      "description": "The A2OA 1.59.84216 BETA Linux server package.",
+      "env_variable": "A2OA_SERVER_URL",
+      "default_value": "https://github.com/Bluscream/arma2-oa-linux-server/releases/latest/download/a2oa-server.tar.bz2",
+      "user_viewable": false,
+      "user_editable": false,
+      "rules": "required|url",
+      "field_type": "text"
+    },
+    {
+      "name": "[Advanced] Hive / Linux Layout URL",
+      "description": "Tarball supplying @hive, writer.pl, tolower.c, database.sql and the stock mission. Defaults to denisio/Dayz-Linux-Server (DayZ Mod 1.8.0.3).",
+      "env_variable": "HIVE_REPO_URL",
+      "default_value": "https://github.com/denisio/Dayz-Linux-Server/archive/refs/heads/master.tar.gz",
+      "user_viewable": false,
+      "user_editable": false,
+      "rules": "required|url",
+      "field_type": "text"
+    },
+    {
+      "name": "[Advanced] Extra Flags for SteamCMD",
+      "description": "Appended to every app_update call.",
+      "env_variable": "STEAMCMD_EXTRA_FLAGS",
+      "default_value": "",
+      "user_viewable": false,
+      "user_editable": false,
+      "rules": "nullable|string",
+      "field_type": "text"
+    }
+  ]
+}
