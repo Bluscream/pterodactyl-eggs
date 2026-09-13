@@ -333,7 +333,7 @@ echo "[Server-Scripts] Synced admin SteamID(s) to ${ADMINS_TXT} for server-side 
 # Dynamically installs sinipelto/dayz-scripts into the active mission's init.c.
 # If dayz_init_server.c is present, it is used; otherwise setup_vpp.sh fetches the upstream
 # init.c directly via curl from GitHub.
-SINIPELTO_RAW_URL="https://raw.githubusercontent.com/bluscream/pterodactyl-eggs/master/dayz-nobe/dayz_init_server.c"
+SINIPELTO_RAW_URL="https://raw.githubusercontent.com/bluscream/pterodactyl-eggs/master/dayzsa-nobe/dayz_init_server.c"
 UPSTREAM_SINIPELTO_URL="https://raw.githubusercontent.com/sinipelto/dayz-scripts/master/init.c"
 
 if [ -f "${MISSION_INIT}" ]; then

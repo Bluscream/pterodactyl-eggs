@@ -21,7 +21,7 @@ The binary patch prevents BattlEye from initializing at all -- it does not leave
 - To get RCON back, drop `patch_be.pl` from the startup command and run the stock binary.
 
 ## Files
-- `egg-dayz-nobe.json`: Complete Pterodactyl v2 Egg ready for import.
+- `egg-dayzsa-nobe.json`: Complete Pterodactyl v2 Egg ready for import.
 - `patch_be.pl`: Binary patcher. Perl, not Python -- the runtime image `ghcr.io/parkervcp/games:dayz` ships `/usr/bin/perl` and has no `python3`.
 - `setup_vpp.sh`: Automated mod keys installer, BattlEye RCON configuration, and SuperAdmin provisioning script.
 - `dayz_init_server.c`: Custom mission init installed over `mpmissions/.../init.c` on first boot (guarded by the `DAYZ_NOBE_CUSTOM_INIT` marker; the original is backed up).
