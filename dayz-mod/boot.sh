@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Single startup command for the DayZ Mod egg. Same reasoning as dayzsa-nobe/boot.sh: the
+# Single startup command for the DayZ Mod egg. Same reasoning as dayz-standalone/boot.sh: the
 # runtime builds the start command inside a backtick `eval`, so a ";"-chained startup line
 # silently loses a segment. Everything that needs to happen before the server runs happens
 # here instead, and the panel's startup line stays one command.
@@ -54,7 +54,7 @@ chmod +x "${BIN}" 2>/dev/null || true
 # binary, /usr/lib32 the distro ones.
 export LD_LIBRARY_PATH=".:/usr/lib32:${LD_LIBRARY_PATH:-}"
 
-# Drop -mod entries whose folders are absent. Borrowed from dayzsa-nobe: the engine refuses to
+# Drop -mod entries whose folders are absent. Borrowed from dayz-standalone: the engine refuses to
 # start when -mod names a directory that does not exist, and starting without one mod beats
 # not starting at all.
 ARGS=()

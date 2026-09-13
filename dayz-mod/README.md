@@ -35,7 +35,7 @@ writes. Its actual launch line is:
 ```
 
 That pipe is why this egg uses a `boot.sh` wrapper instead of a bare startup line — the same
-reason `dayzsa-nobe` does, plus the `;`-in-`eval` trap documented in `dayzsa-nobe/boot.sh`.
+reason `dayz-standalone` does, plus the `;`-in-`eval` trap documented in `dayz-standalone/boot.sh`.
 
 Two consequences you should plan around:
 

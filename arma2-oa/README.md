@@ -78,7 +78,7 @@ added as additional allocations if used.
 - **`config.startup.done` is a guess.** It is set to `Dedicated host created.`. If the server
   installs and runs but the panel never marks it green, this string is why — check the console
   for the real ready line and correct it.
-- **Steam Guard** will break the install non-interactively. Unlike `dayzsa-nobe`, this egg has no
+- **Steam Guard** will break the install non-interactively. Unlike `dayz-standalone`, this egg has no
   2FA handling; the account needs Guard off or an established sentry.
 - `-cpuCount=2` is a conservative default. The 32-bit engine cannot address more than ~2 GB
   regardless of what `-maxMem` is set to.

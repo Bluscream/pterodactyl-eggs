@@ -79,7 +79,7 @@ else
     echo "  Upload @dayz into the server root before starting."
 fi
 
-# boot.sh, delivered the same way dayzsa-nobe does it: pinned to a ref so reinstalls are
+# boot.sh, delivered the same way dayz-standalone does it: pinned to a ref so reinstalls are
 # reproducible, with --fail because curl otherwise exits 0 on a 404 and writes the error body
 # into the destination file. Bump RAW_REF when boot.sh changes.
 RAW_REF="master"

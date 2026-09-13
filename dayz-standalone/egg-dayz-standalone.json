@@ -5,9 +5,9 @@
         "update_url": null
     },
     "exported_at": "2026-09-12T18:52:52+02:00",
-    "name": "DayZ Standalone (No-BE Patched)",
+    "name": "DayZ Standalone",
     "author": "blu@minopia.de",
-    "description": "DayZ Dedicated Server with automatic BattlEye memory patcher, VAC ban bypass, and dual Release (223350) & Experimental (1042420) support.",
+    "description": "DayZ Standalone dedicated server. BattlEye is controlled by the single DISABLE_BATTLEYE variable: 1 patches the server binary so BattlEye never initialises (no global-ban or VAC kicks, and no BE RCON), 0 runs the stock binary with BattlEye and RCON fully working. Supports both the Release (223350) and Experimental (1042420) dedicated server app IDs, with VPPAdminTools provisioning and server-side chat commands.",
     "features": [
         "steam_disk_space"
     ],
@@ -38,14 +38,6 @@
                     "allowedFilePatching": "allowedFilePatching = {{env.ALLOWED_FILE_PATCHING}};",
                     "steamQueryPort": "steamQueryPort = {{env.STEAM_QUERY_PORT}};"
                 }
-            },
-            "battleye/BEServer_x64.cfg": {
-                "parser": "file",
-                "find": {
-                    "RConPassword": "RConPassword {{env.ADMIN_PASSWORD}}",
-                    "RestrictRCon": "RestrictRCon 0",
-                    "RConPort": "RConPort {{env.RCON_PORT}}"
-                }
             }
         },
         "startup": {
@@ -56,7 +48,7 @@
     },
     "scripts": {
         "installation": {
-            "script": "#!/bin/bash\r\n\r\n## File: Pterodactyl DayZ Standalone (No-BE Patched) Egg\r\n## Image: 'ghcr.io/parkervcp/installers:debian'\r\n\r\ncd /tmp\r\nmkdir -p /mnt/server/steamcmd /mnt/server/steamapps\r\ncurl -sSL -o steamcmd.tar.gz https://steamcdn-a.akamaihd.net/client/installer/steamcmd_linux.tar.gz\r\ntar -xzvf steamcmd.tar.gz -C /mnt/server/steamcmd\r\ncd /mnt/server/steamcmd\r\n\r\nchown -R root:root /mnt\r\nexport HOME=/mnt/server\r\n\r\n# Install game server using SteamCMD\r\n# ${STEAM_2FA_CODE} is appended to +login: steamcmd takes the Guard code as a third\n# positional argument. Empty expands to nothing, keeping anonymous installs working.\n./steamcmd.sh +force_install_dir /mnt/server +login \"${STEAM_USER}\" \"${STEAM_PASS}\" ${STEAM_2FA_CODE} +app_update ${STEAMCMD_APPID} ${STEAMCMD_EXTRA_FLAGS} validate +quit\r\n\r\n# Set up 32 and 64 bit libraries\r\nmkdir -p /mnt/server/.steam/sdk{32,64}\r\ncp -v linux32/steamclient.so /mnt/server/.steam/sdk32/steamclient.so\r\ncp -v linux64/steamclient.so /mnt/server/.steam/sdk64/steamclient.so\r\n\r\n# Download / deliver egg companion scripts (patch_be.pl, setup_vpp.sh, dayz_init_server.c)\n# Pinned to an immutable commit SHA so reinstalls are reproducible and never pick up\n# whatever happens to be on the branch that day. Bump RAW_REF when the helpers change.\nRAW_REF=\"7423684dce63bd0467778dfd56490d5751ba0c60\"\nRAW_BASE=\"https://raw.githubusercontent.com/bluscream/pterodactyl-eggs/${RAW_REF}/dayz-nobe\"\n\nfetch() {\n    # --fail is mandatory: without it curl exits 0 on a 404 and writes the\n    # \"404: Not Found\" HTML/text body straight into the destination file.\n    echo \"Fetching ${1}...\"\n    curl --fail -sSL -o \"/mnt/server/${1}.tmp\" \"${RAW_BASE}/${1}\" || {\n        echo \"FATAL: could not download ${1} from ${RAW_BASE}\"\n        rm -f \"/mnt/server/${1}.tmp\"\n        exit 1\n    }\n    mv \"/mnt/server/${1}.tmp\" \"/mnt/server/${1}\"\n}\n\nfetch boot.sh\nfetch patch_be.pl\nfetch setup_vpp.sh\nfetch dayz_init_server.c\nchmod +x /mnt/server/boot.sh /mnt/server/patch_be.pl /mnt/server/setup_vpp.sh\n\n## install end\r\necho \"-----------------------------------------\"\r\necho \"Installation completed...\"\r\necho \"-----------------------------------------\"",
+            "script": "#!/bin/bash\r\n\r\n## File: Pterodactyl DayZ Standalone Egg\r\n## Image: 'ghcr.io/parkervcp/installers:debian'\r\n\r\ncd /tmp\r\nmkdir -p /mnt/server/steamcmd /mnt/server/steamapps\r\ncurl -sSL -o steamcmd.tar.gz https://steamcdn-a.akamaihd.net/client/installer/steamcmd_linux.tar.gz\r\ntar -xzvf steamcmd.tar.gz -C /mnt/server/steamcmd\r\ncd /mnt/server/steamcmd\r\n\r\nchown -R root:root /mnt\r\nexport HOME=/mnt/server\r\n\r\n# Install game server using SteamCMD\r\n# ${STEAM_2FA_CODE} is appended to +login: steamcmd takes the Guard code as a third\n# positional argument. Empty expands to nothing, keeping anonymous installs working.\n./steamcmd.sh +force_install_dir /mnt/server +login \"${STEAM_USER}\" \"${STEAM_PASS}\" ${STEAM_2FA_CODE} +app_update ${STEAMCMD_APPID} ${STEAMCMD_EXTRA_FLAGS} validate +quit\r\n\r\n# Set up 32 and 64 bit libraries\r\nmkdir -p /mnt/server/.steam/sdk{32,64}\r\ncp -v linux32/steamclient.so /mnt/server/.steam/sdk32/steamclient.so\r\ncp -v linux64/steamclient.so /mnt/server/.steam/sdk64/steamclient.so\r\n\r\n# Download / deliver egg companion scripts (patch_be.pl, setup_vpp.sh, dayz_init_server.c)\n# Pinned to an immutable commit SHA so reinstalls are reproducible and never pick up\n# whatever happens to be on the branch that day. Bump RAW_REF when the helpers change.\nRAW_REF=\"7423684dce63bd0467778dfd56490d5751ba0c60\"\nRAW_BASE=\"https://raw.githubusercontent.com/bluscream/pterodactyl-eggs/${RAW_REF}/dayz-nobe\"\n\nfetch() {\n    # --fail is mandatory: without it curl exits 0 on a 404 and writes the\n    # \"404: Not Found\" HTML/text body straight into the destination file.\n    echo \"Fetching ${1}...\"\n    curl --fail -sSL -o \"/mnt/server/${1}.tmp\" \"${RAW_BASE}/${1}\" || {\n        echo \"FATAL: could not download ${1} from ${RAW_BASE}\"\n        rm -f \"/mnt/server/${1}.tmp\"\n        exit 1\n    }\n    mv \"/mnt/server/${1}.tmp\" \"/mnt/server/${1}\"\n}\n\nfetch boot.sh\nfetch patch_be.pl\nfetch setup_vpp.sh\nfetch dayz_init_server.c\nchmod +x /mnt/server/boot.sh /mnt/server/patch_be.pl /mnt/server/setup_vpp.sh\n\n## install end\r\necho \"-----------------------------------------\"\r\necho \"Installation completed...\"\r\necho \"-----------------------------------------\"",
             "container": "ghcr.io/parkervcp/installers:debian",
             "entrypoint": "/bin/bash"
         }
@@ -394,7 +386,7 @@
         },
         {
             "name": "RCON Port",
-            "description": "BattlEye RCON port. Unused while the server is patched (BE never loads). Kept so an unpatched server has a sane default.",
+            "description": "BattlEye RCON port, written into BEServer_x64.cfg when DISABLE_BATTLEYE=0. Ignored entirely when DISABLE_BATTLEYE=1, since BattlEye never loads and nothing binds it.",
             "env_variable": "RCON_PORT",
             "default_value": "2304",
             "user_viewable": true,
@@ -403,8 +395,8 @@
             "field_type": "text"
         },
         {
-            "name": "Disable BattlEye",
-            "description": "1 disables BattlEye entirely (no bans, no kicks, no RCON), 0 leaves it fully enabled.",
+            "name": "BattlEye Master Switch (Disable BattlEye)",
+            "description": "The SOLE decider for BattlEye. 1 = patch the server binary, set battleye=0 and remove BEServer_x64.cfg: no bans, no kicks, no RCON. 0 = restore the stock binary, set battleye=1 and write BEServer_x64.cfg: BattlEye and BE RCON both work. Anything other than an explicit 0 is treated as 1. Nothing else -- not -nobe, not serverDZ.cfg, not the panel's config parser -- influences BattlEye state.",
             "env_variable": "DISABLE_BATTLEYE",
             "default_value": "1",
             "user_viewable": true,

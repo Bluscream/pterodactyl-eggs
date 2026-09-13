@@ -4,34 +4,17 @@ use warnings;
 
 my $target = $ARGV[0] // "DayZServer";
 
-# --- 1. Enforce/Respect BattlEye Setting in serverDZ.cfg ---
-# NOTE: Commented out because Pterodactyl's egg configuration parser already
-# natively parses and manages serverDZ.cfg variables (including battleye = {{env.ENABLE_BATTLEYE}};).
-# Retained as a comment in case patch_be.pl is executed standalone outside of Pterodactyl.
+# This script ONLY patches the binary. It deliberately does not touch serverDZ.cfg.
 #
-# if (-f "serverDZ.cfg") {
-#     my $enable_be = $ENV{ENABLE_BATTLEYE} // "0";
-#     my $be_val = ($enable_be eq "1") ? 1 : 0;
+# It used to carry a (commented-out) block that rewrote `battleye = N;` from an ENABLE_BATTLEYE
+# environment variable. That block is gone rather than commented, because a second thing able
+# to decide BattlEye state is worse than no fallback at all: setup_vpp.sh owns that decision
+# via DISABLE_BATTLEYE, and it writes serverDZ.cfg itself. Patching here while some other code
+# path sets battleye = 1 yields a server that is patched but claims BattlEye is on.
 #
-#     open(my $in, "<", "serverDZ.cfg");
-#     my @lines = <$in>;
-#     close($in);
-#
-#     my $found_be = 0;
-#     for (@lines) {
-#         if (/^\s*battleye\s*=/i) {
-#             $_ = "battleye = $be_val;\n";
-#             $found_be = 1;
-#         }
-#     }
-#     push @lines, "battleye = $be_val;\n" unless $found_be;
-#
-#     open(my $out, ">", "serverDZ.cfg");
-#     print $out @lines;
-#     close($out);
-# }
+# Run standalone, this patches and nothing else -- caller's job to set battleye = 0 to match.
 
-# --- 2. Patch Binary Memory/Signatures ---
+# --- Patch Binary Memory/Signatures ---
 unless (-f $target) {
     print STDERR "[BattlEye-Patcher] ERROR: Target binary '$target' not found. Server will start UNPATCHED.\n";
     exit 1;

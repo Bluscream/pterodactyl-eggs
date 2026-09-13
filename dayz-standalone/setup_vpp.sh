@@ -180,12 +180,26 @@ install_workshop_mods() {
 install_workshop_mods
 
 # 0. BattlEye master switch
-# DISABLE_BATTLEYE=1 -> binary patched, battleye=0, no BEServer cfg. No BattlEye, no RCON.
-# DISABLE_BATTLEYE=0 -> stock binary restored, battleye=1, BEServer cfg written. BattlEye + RCON.
-# Falls back to the inverse of the older ENABLE_BATTLEYE variable so servers whose panel
-# still has the old egg imported keep working.
-if [ -z "${DISABLE_BATTLEYE}" ]; then
-    if [ "${ENABLE_BATTLEYE}" = "1" ]; then DISABLE_BATTLEYE=0; else DISABLE_BATTLEYE=1; fi
+#
+# DISABLE_BATTLEYE is the SOLE decider. Nothing else in this egg may set, infer or override
+# BattlEye state:
+#   1 -> binary patched, battleye=0, BEServer_x64.cfg removed. No BattlEye, no RCON.
+#   0 -> stock binary restored, battleye=1, BEServer_x64.cfg written. BattlEye + RCON.
+#
+# Three other deciders used to exist and were removed, because disagreeing sources of truth
+# here produce a server that is patched but advertises RCON, or unpatched but configured as
+# though it were not:
+#   * ENABLE_BATTLEYE, an older inverted variable this fell back to.
+#   * patch_be.pl's own serverDZ.cfg rewriting.
+#   * the egg's config.files entry for battleye/BEServer_x64.cfg, which made the panel's
+#     config parser write that file on every boot regardless of this setting.
+# If BattlEye state ever looks wrong again, it is decided here and only here.
+#
+# Anything other than an explicit 0 disables BattlEye. That is the safe default for this egg:
+# an unset or malformed value leaves the binary patched rather than silently shipping a server
+# that kicks players on global bans.
+if [ "${DISABLE_BATTLEYE}" != "0" ]; then
+    DISABLE_BATTLEYE=1
 fi
 
 SERVER_BIN="${SERVER_ROOT}/${SERVER_BINARY:-DayZServer}"
@@ -249,13 +263,19 @@ if [ "${DISABLE_BATTLEYE}" != "1" ]; then
     RCON_FILE="${BATTLEYE_DIR}/BEServer_x64.cfg"
     RCON_PORT="${RCON_PORT:-2304}"
     cat <<EOF > "${RCON_FILE}"
+// Managed by setup_vpp.sh. DISABLE_BATTLEYE=0 wrote this file.
 RConPassword ${ADMIN_PASSWORD}
 RestrictRCon 0
 RConPort ${RCON_PORT}
 EOF
     echo "[RCON] Configured BattlEye RCON on port ${RCON_PORT} (RestrictRCon 0)."
 else
-    echo "[RCON] BattlEye disabled (DISABLE_BATTLEYE=1) -- skipping BEServer_x64.cfg."
+    # Actively delete it rather than merely skipping. A leftover BEServer_x64.cfg -- from an
+    # earlier DISABLE_BATTLEYE=0 boot, or written by a panel whose egg still carries the
+    # config.files entry -- reads as though RCON were available on a server where BattlEye
+    # never loads. That file is exactly what sent someone chasing a stale RCON password.
+    rm -f "${BATTLEYE_DIR}/BEServer_x64.cfg"
+    echo "[RCON] BattlEye disabled (DISABLE_BATTLEYE=1) -- removed BEServer_x64.cfg."
     echo "[RCON] Admin access: VPPAdminTools in-game and the init.c ! commands."
 fi
 
@@ -333,7 +353,7 @@ echo "[Server-Scripts] Synced admin SteamID(s) to ${ADMINS_TXT} for server-side 
 # Dynamically installs sinipelto/dayz-scripts into the active mission's init.c.
 # If dayz_init_server.c is present, it is used; otherwise setup_vpp.sh fetches the upstream
 # init.c directly via curl from GitHub.
-SINIPELTO_RAW_URL="https://raw.githubusercontent.com/bluscream/pterodactyl-eggs/master/dayzsa-nobe/dayz_init_server.c"
+SINIPELTO_RAW_URL="https://raw.githubusercontent.com/bluscream/pterodactyl-eggs/master/dayz-standalone/dayz_init_server.c"
 UPSTREAM_SINIPELTO_URL="https://raw.githubusercontent.com/sinipelto/dayz-scripts/master/init.c"
 
 if [ -f "${MISSION_INIT}" ]; then
