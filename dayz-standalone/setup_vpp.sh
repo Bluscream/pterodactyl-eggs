@@ -122,25 +122,29 @@ sync_workshop_collection() {
         coll_count=$(echo "${coll_ids}" | wc -w)
         echo "[Mods] Discovered ${coll_count} mod(s) in collection ${WORKSHOP_COLLECTION_ID}."
 
-        local updated_mods="${MODIFICATIONS}"
+        # Replace MODIFICATIONS directly with the collection mods so someone who subscribes
+        # only to this collection will always have all mods required to join the server.
+        local replaced_mods=""
         for cid in ${coll_ids}; do
-            case ";${updated_mods};" in
-                *";@${cid};"*|*";${cid};"*) ;;
-                *)
-                    updated_mods="${updated_mods};@${cid}"
-                    ;;
-            esac
+            [ -z "${cid}" ] && continue
+            replaced_mods="${replaced_mods};@${cid}"
         done
-        updated_mods="$(echo "${updated_mods}" | sed -e 's/^;//' -e 's/;$//' -e 's/;;*/;/g')"
-        if [ "${updated_mods}" != "${MODIFICATIONS}" ]; then
-            echo "[Mods] Synchronized MODIFICATIONS with Workshop collection ${WORKSHOP_COLLECTION_ID}:"
-            echo "[Mods]   MODIFICATIONS=${updated_mods}"
-            export MODIFICATIONS="${updated_mods}"
+        replaced_mods="$(echo "${replaced_mods}" | sed -e 's/^;//' -e 's/;$//' -e 's/;;*/;/g')"
+        [ -n "${replaced_mods}" ] && replaced_mods="${replaced_mods};"
+
+        if [ "${replaced_mods}" != "${MODIFICATIONS}" ]; then
+            echo "[Mods] Replaced MODIFICATIONS with exact Workshop collection ${WORKSHOP_COLLECTION_ID} mods:"
+            echo "[Mods]   Old: ${MODIFICATIONS}"
+            echo "[Mods]   New: ${replaced_mods}"
+            export MODIFICATIONS="${replaced_mods}"
         else
-            echo "[Mods] Server mods already match Workshop collection."
+            echo "[Mods] Server mods already match Workshop collection exactly."
         fi
+
+        # Write to active_mods.txt so boot.sh / server startup command can reflect the replaced collection mods
+        echo "${MODIFICATIONS}" > "${SERVER_ROOT}/.active_mods" 2>/dev/null || true
     else
-        echo "[Mods] WARNING: Could not fetch collection ${WORKSHOP_COLLECTION_ID} details."
+        echo "[Mods] WARNING: Could not fetch collection ${WORKSHOP_COLLECTION_ID} details; retaining existing MODIFICATIONS."
     fi
 }
 

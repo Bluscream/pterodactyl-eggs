@@ -38,7 +38,31 @@ fi
 ARGS=()
 for arg in "$@"; do
     case "${arg}" in
-        -mod=*|-serverMod=*)
+        -mod=*)
+            prefix="${arg%%=*}"
+            kept=""
+            dropped=""
+            raw_mods="${arg#*=}"
+            if [ -f "/home/container/.active_mods" ] && [ -s "/home/container/.active_mods" ]; then
+                raw_mods="$(tr -d '\r\n' < /home/container/.active_mods)"
+                echo "[boot] Using synced collection mods from .active_mods: ${raw_mods}"
+            fi
+            IFS=';' read -ra entries <<< "${raw_mods}"
+            for entry in "${entries[@]}"; do
+                [ -z "${entry}" ] && continue
+                if [ -d "/home/container/${entry#@}" ] || [ -d "/home/container/${entry}" ]; then
+                    kept="${kept}${entry};"
+                else
+                    dropped="${dropped} ${entry}"
+                fi
+            done
+            if [ -n "${dropped}" ]; then
+                echo "[boot] WARNING: ${prefix} entries not installed, dropping:${dropped}"
+                echo "[boot]   Server will start without them. Check the [Mods] lines above."
+            fi
+            ARGS+=("${prefix}=${kept}")
+            ;;
+        -serverMod=*)
             prefix="${arg%%=*}"
             kept=""
             dropped=""
