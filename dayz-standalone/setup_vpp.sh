@@ -38,6 +38,8 @@ MISSION_INIT="${SERVER_ROOT}/mpmissions/${MISSION_NAME}/init.c"
 #                 prompt again), and a TOTP cannot be reused. Any ArchiSteamFarm endpoint works:
 #                 https://asf.host/api/bot/<bot>/twoFactorAuthentication/token?password=<ipc>
 WORKSHOP_APPID="221100"
+WORKSHOP_COLLECTION_ID="${WORKSHOP_COLLECTION_ID:-3800469441}"
+STEAMCLI_BIN="${SERVER_ROOT}/steamcli"
 
 # The value may also live in .steam_auth in the server root, which outlives the panel
 # variable and can be chmod 600 -- worth preferring when the URL embeds an IPC password, since
@@ -96,7 +98,55 @@ steam_guard_code() {
     echo "${code}" | tr '[:lower:]' '[:upper:]'
 }
 
+sync_workshop_collection() {
+    [ -z "${WORKSHOP_COLLECTION_ID}" ] && return 0
+
+    local coll_ids=""
+    if [ -x "${STEAMCLI_BIN}" ]; then
+        echo "[Mods] Fetching mods from Workshop collection ${WORKSHOP_COLLECTION_ID} via steamcli..."
+        coll_ids="$("${STEAMCLI_BIN}" workshop collection "${WORKSHOP_COLLECTION_ID}" --ids-only 2>/dev/null || true)"
+    elif command -v steamcli >/dev/null 2>&1; then
+        echo "[Mods] Fetching mods from Workshop collection ${WORKSHOP_COLLECTION_ID} via system steamcli..."
+        coll_ids="$(steamcli workshop collection "${WORKSHOP_COLLECTION_ID}" --ids-only 2>/dev/null || true)"
+    else
+        # Fallback to anonymous Steam Remote Storage API
+        echo "[Mods] Fetching mods from Workshop collection ${WORKSHOP_COLLECTION_ID} via Steam API..."
+        local resp
+        resp="$(curl --fail -sSL --max-time 15 -X POST "https://api.steampowered.com/ISteamRemoteStorage/GetCollectionDetails/v1/" \
+            -d "collectioncount=1" -d "publishedfileids[0]=${WORKSHOP_COLLECTION_ID}" 2>/dev/null || true)"
+        coll_ids="$(echo "${resp}" | grep -oE '"publishedfileid"[[:space:]]*:[[:space:]]*"[0-9]+"' | grep -oE '[0-9]+' || true)"
+    fi
+
+    if [ -n "${coll_ids}" ]; then
+        local coll_count
+        coll_count=$(echo "${coll_ids}" | wc -w)
+        echo "[Mods] Discovered ${coll_count} mod(s) in collection ${WORKSHOP_COLLECTION_ID}."
+
+        local updated_mods="${MODIFICATIONS}"
+        for cid in ${coll_ids}; do
+            case ";${updated_mods};" in
+                *";@${cid};"*|*";${cid};"*) ;;
+                *)
+                    updated_mods="${updated_mods};@${cid}"
+                    ;;
+            esac
+        done
+        updated_mods="$(echo "${updated_mods}" | sed -e 's/^;//' -e 's/;$//' -e 's/;;*/;/g')"
+        if [ "${updated_mods}" != "${MODIFICATIONS}" ]; then
+            echo "[Mods] Synchronized MODIFICATIONS with Workshop collection ${WORKSHOP_COLLECTION_ID}:"
+            echo "[Mods]   MODIFICATIONS=${updated_mods}"
+            export MODIFICATIONS="${updated_mods}"
+        else
+            echo "[Mods] Server mods already match Workshop collection."
+        fi
+    else
+        echo "[Mods] WARNING: Could not fetch collection ${WORKSHOP_COLLECTION_ID} details."
+    fi
+}
+
 install_workshop_mods() {
+    sync_workshop_collection
+
     [ -z "${MODIFICATIONS}" ] && return 0
     [ -z "${STEAM_USER}" ] && return 0
     [ "${STEAM_USER}" = "anonymous" ] && return 0
@@ -123,30 +173,32 @@ install_workshop_mods() {
     local content="${SERVER_ROOT}/steamapps/workshop/content/${WORKSHOP_APPID}"
     local fails=0
     for id in ${missing}; do
-        # Steam rate-limits repeated logins, and each attempt can then sit in "Retrying..."
-        # until the timeout. Downloading mods must never hold the server down, so give up for
-        # this boot after two consecutive failures and start with whatever is installed.
         if [ "${fails}" -ge 2 ]; then
             echo "[Mods] Two consecutive failures -- stopping for this boot (Steam is likely"
             echo "[Mods]   rate-limiting logins). Remaining mods retry on the next restart."
             break
         fi
-        # Re-mint a code for every mod. A successful login does not reliably leave a sentry
-        # behind here (observed: the first mod downloaded, every later one hit the Guard
-        # prompt again), and a TOTP is single-use anyway. When the code comes from a URL this
-        # is free; when it came from a file or variable there is only ever the one.
         if [ -z "${code}" ] || is_url "${STEAM_AUTH}"; then
             code="$(steam_guard_code)"
         fi
         echo "[Mods] Downloading ${id}..."
-        # Credentials are passed as arguments to steamcmd and never echoed.
-        # stdin is /dev/null and the call is time-boxed: when Steam wants a code it has not
-        # got, steamcmd prompts ("enter the Steam Guard code") and would otherwise block the
-        # boot forever waiting on a tty that does not exist.
-        timeout 900 "${SERVER_ROOT}/steamcmd/steamcmd.sh" +force_install_dir "${SERVER_ROOT}" \
-            +login "${STEAM_USER}" "${STEAM_PASS}" ${code} \
-            +workshop_download_item "${WORKSHOP_APPID}" "${id}" +quit \
-            < /dev/null > "${SERVER_ROOT}/.steamcmd_mods.log" 2>&1 || true
+        if [ -x "${STEAMCLI_BIN}" ] || command -v steamcli >/dev/null 2>&1; then
+            local cli_bin="${STEAMCLI_BIN}"
+            [ ! -x "${cli_bin}" ] && cli_bin="steamcli"
+            local auth_flag=()
+            [ -n "${code}" ] && auth_flag=(--auth-code "${code}")
+            timeout 900 "${cli_bin}" cmd workshop "${WORKSHOP_APPID}" "${id}" \
+                --dir "${SERVER_ROOT}" \
+                --user "${STEAM_USER}" \
+                --password "${STEAM_PASS}" \
+                "${auth_flag[@]}" \
+                < /dev/null > "${SERVER_ROOT}/.steamcmd_mods.log" 2>&1 || true
+        else
+            timeout 900 "${SERVER_ROOT}/steamcmd/steamcmd.sh" +force_install_dir "${SERVER_ROOT}" \
+                +login "${STEAM_USER}" "${STEAM_PASS}" ${code} \
+                +workshop_download_item "${WORKSHOP_APPID}" "${id}" +quit \
+                < /dev/null > "${SERVER_ROOT}/.steamcmd_mods.log" 2>&1 || true
+        fi
 
         if grep -qi "check your email\|Steam Guard code" "${SERVER_ROOT}/.steamcmd_mods.log" 2>/dev/null; then
             echo "[Mods] Steam asked for a Guard code that this login did not satisfy."
@@ -171,8 +223,6 @@ install_workshop_mods() {
         fails=0
     done
 
-    # Never leave a stale one-shot code behind: it cannot work twice, and keeping it would
-    # make the next boot look like it had a code when it did not.
     if [ -f "${GUARD_FILE}" ] && ! is_url "$(tr -d ' \r\n' < "${GUARD_FILE}")"; then
         rm -f "${GUARD_FILE}"
         echo "[Mods] Consumed and removed $(basename "${GUARD_FILE}") (single-use)."
@@ -298,6 +348,13 @@ if [ -f "${SERVER_CFG}" ]; then
         echo "passwordAdmin = \"${ADMIN_PASSWORD}\";" >> "${SERVER_CFG}"
     fi
     echo "[Config] Synced passwordAdmin in serverDZ.cfg with the resolved passphrase."
+    if [ -n "${WORKSHOP_COLLECTION_ID}" ]; then
+        coll_url="https://steamcommunity.com/sharedfiles/filedetails/?id=${WORKSHOP_COLLECTION_ID}"
+        if ! grep -q "${coll_url}" "${SERVER_CFG}"; then
+            sed -i '/motd\[\] = {/a \    "Required Mods Collection: '"${coll_url}"'",' "${SERVER_CFG}" 2>/dev/null || true
+            echo "[Config] Injected Workshop collection link into serverDZ.cfg motd."
+        fi
+    fi
 fi
 
 # 3. VPP Admin Tools Setup
