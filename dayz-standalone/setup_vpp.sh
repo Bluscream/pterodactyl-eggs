@@ -28,73 +28,75 @@ MISSION_INIT="${SERVER_ROOT}/mpmissions/${MISSION_NAME}/init.c"
 # to start because -mod names a directory that does not exist. We cannot patch the image,
 # so this retries the downloads ourselves, with a code, before the server is launched.
 #
-# STEAM_2FA_CODE - a one-shot code. Only needed until Steam trusts this machine: the first
-#                  successful login writes a sentry (Steam/config/ssfn*) into the server
-#                  volume and later logins need no code at all.
-# STEAM_2FA_URL  - optional endpoint returning a fresh code, for accounts where the sentry
-#                  keeps getting invalidated. Any ArchiSteamFarm 2FA endpoint works, e.g.
-#                  https://asf.host/api/bot/<bot>/twoFactorAuthentication/token?password=...
-#                  The response may be plain text or ASF's JSON; both are handled.
-# The older STEAM_GUARD / STEAM_GUARD_URL names still work as fallbacks.
+# STEAM_AUTH holds EITHER a literal 5-character Guard code OR a URL that returns one. The
+#                 mode is inferred from the value, so there is one setting and no precedence rule
+#                 to remember.
+#                   literal  "K4J9P"      -- single-use, ~30 second life
+#                   URL      "https://..." -- re-minted before every mod download
+#                 A URL is strongly preferable here: a successful login does not reliably leave a
+#                 sentry behind (observed: the first mod downloaded, every later one hit the Guard
+#                 prompt again), and a TOTP cannot be reused. Any ArchiSteamFarm endpoint works:
+#                 https://asf.host/api/bot/<bot>/twoFactorAuthentication/token?password=<ipc>
 WORKSHOP_APPID="221100"
 
-# Both settings also work as files in the server root, so a panel that still has an older
-# egg imported needs no re-import: Pterodactyl's application API cannot import or edit eggs
-# (POST to the eggs endpoint answers 405), but any file can be dropped in with `ptero write`.
-#   .steam_2fa_code - a one-shot code. Consumed and deleted after use, since it is single-use.
-#   .steam_2fa_url  - endpoint returning a fresh code.
-# The older .steam_guard / .steam_guard_url names are still honoured.
-GUARD_FILE="${SERVER_ROOT}/.steam_2fa_code"
-GUARD_URL_FILE="${SERVER_ROOT}/.steam_2fa_url"
-[ ! -f "${GUARD_FILE}" ] && [ -f "${SERVER_ROOT}/.steam_guard" ] && GUARD_FILE="${SERVER_ROOT}/.steam_guard"
-[ ! -f "${GUARD_URL_FILE}" ] && [ -f "${SERVER_ROOT}/.steam_guard_url" ] && GUARD_URL_FILE="${SERVER_ROOT}/.steam_guard_url"
+# The value may also live in .steam_auth in the server root, which outlives the panel
+# variable and can be chmod 600 -- worth preferring when the URL embeds an IPC password, since
+# panel variables are stored in the database in plain text.
+#   literal code -> consumed and deleted after use, since it cannot work twice
+#   URL          -> kept, since it stays valid
+GUARD_FILE="${SERVER_ROOT}/.steam_auth"
+[ -z "${STEAM_AUTH}" ] && [ -f "${GUARD_FILE}" ] && \
+    STEAM_AUTH="$(tr -d ' \r\n' < "${GUARD_FILE}")"
+# The URL usually embeds a secret, so keep the file owner-readable only.
+[ -f "${GUARD_FILE}" ] && chmod 600 "${GUARD_FILE}" 2>/dev/null || true
+
+is_url() { case "${1}" in http://*|https://*) return 0 ;; *) return 1 ;; esac; }
 
 steam_guard_code() {
-    STEAM_2FA_CODE="${STEAM_2FA_CODE:-${STEAM_GUARD}}"
-    STEAM_2FA_URL="${STEAM_2FA_URL:-${STEAM_GUARD_URL}}"
-    if [ -n "${STEAM_2FA_CODE}" ]; then
-        echo "${STEAM_2FA_CODE}"
+    [ -z "${STEAM_AUTH}" ] && return 0
+    if ! is_url "${STEAM_AUTH}"; then
+        echo "${STEAM_AUTH}"
         return 0
     fi
-    if [ -f "${GUARD_FILE}" ] && [ -s "${GUARD_FILE}" ]; then
-        tr -d ' \r\n' < "${GUARD_FILE}"
-        return 0
-    fi
-    if [ -z "${STEAM_2FA_URL}" ] && [ -f "${GUARD_URL_FILE}" ]; then
-        # This URL usually embeds an IPC password, so keep it owner-readable only. The panel
-        # file manager can still read it -- treat it as a secret that lives on the server.
-        chmod 600 "${GUARD_URL_FILE}" 2>/dev/null || true
-        STEAM_2FA_URL="$(tr -d ' \r\n' < "${GUARD_URL_FILE}")"
-    fi
-    [ -z "${STEAM_2FA_URL}" ] && return 0
     # Newer ArchiSteamFarm builds reject ?password= on IPC and want the secret in an
-    # "Authentication" header instead -- that combination answers 401 with a correct
-    # password, which is exactly what this server saw. Send both so either vintage works.
+    # "Authentication" header instead -- that combination answers 401 with a correct password,
+    # which is exactly what this server saw. Send both so either vintage works.
     local ipc_pw=""
-    case "${STEAM_2FA_URL}" in
+    case "${STEAM_AUTH}" in
         *password=*)
-            ipc_pw="${STEAM_2FA_URL##*password=}"
+            ipc_pw="${STEAM_AUTH##*password=}"
             ipc_pw="${ipc_pw%%&*}"
             ;;
     esac
 
-    # Extract the first 5-character alphanumeric token: matches ASF's {"Result":{"bot":
-    # {"Result":"ABC12"}}} as well as a bare code, without needing a JSON parser.
     local response
-    response="$(curl --fail -sSL --max-time 15 -H "Authentication: ${ipc_pw}" "${STEAM_2FA_URL}" 2>/dev/null)"
+    response="$(curl --fail -sSL --max-time 15 -H "Authentication: ${ipc_pw}" "${STEAM_AUTH}" 2>/dev/null)"
     if [ -z "${response}" ]; then
-        response="$(curl --fail -sSL --max-time 15 "${STEAM_2FA_URL}" 2>/dev/null)"
+        response="$(curl --fail -sSL --max-time 15 "${STEAM_AUTH}" 2>/dev/null)"
     fi
     if [ -z "${response}" ]; then
-        echo "[Mods] 2FA URL returned nothing (auth rejected or unreachable)." >&2
+        echo "[Mods] 2FA endpoint returned nothing (auth rejected or unreachable)." >&2
         return 0
     fi
-    echo "${response}" | grep -oE '[A-Z0-9]{5}' | head -1
+
+    # Extraction, most specific first, without needing a JSON parser:
+    #   1. ASF's {"Result":{"bot":{"Result":"ABC12"}}} -- LAST match, the wrapper reuses the key
+    #   2. a bare 5-character body
+    #   3. any uppercase 5-character token
+    # Step 1 matters because step 3 alone would return a 5-character uppercase BOT NAME in
+    # preference to the code -- fine for a bot called "Bluscream", wrong for one called "ASF01".
+    local code bare
+    code="$(echo "${response}" | grep -oE '"Result"[[:space:]]*:[[:space:]]*"[A-Za-z0-9]{5}"' \
+            | tail -1 | grep -oE '[A-Za-z0-9]{5}"$' | tr -d '"')"
+    if [ -z "${code}" ]; then
+        bare="$(echo "${response}" | tr -d ' \r\n')"
+        case "${bare}" in [A-Za-z0-9][A-Za-z0-9][A-Za-z0-9][A-Za-z0-9][A-Za-z0-9]) code="${bare}" ;; esac
+    fi
+    [ -z "${code}" ] && code="$(echo "${response}" | grep -oE '[A-Z0-9]{5}' | head -1)"
+    echo "${code}" | tr '[:lower:]' '[:upper:]'
 }
 
 install_workshop_mods() {
-    STEAM_2FA_URL="${STEAM_2FA_URL:-${STEAM_GUARD_URL}}"
-    [ -z "${STEAM_2FA_URL}" ] && [ -f "${GUARD_URL_FILE}" ] && STEAM_2FA_URL="$(tr -d ' \r\n' < "${GUARD_URL_FILE}")"
     [ -z "${MODIFICATIONS}" ] && return 0
     [ -z "${STEAM_USER}" ] && return 0
     [ "${STEAM_USER}" = "anonymous" ] && return 0
@@ -133,7 +135,7 @@ install_workshop_mods() {
         # behind here (observed: the first mod downloaded, every later one hit the Guard
         # prompt again), and a TOTP is single-use anyway. When the code comes from a URL this
         # is free; when it came from a file or variable there is only ever the one.
-        if [ -z "${code}" ] || [ -n "${STEAM_2FA_URL}" ]; then
+        if [ -z "${code}" ] || is_url "${STEAM_AUTH}"; then
             code="$(steam_guard_code)"
         fi
         echo "[Mods] Downloading ${id}..."
@@ -150,7 +152,7 @@ install_workshop_mods() {
             echo "[Mods] Steam asked for a Guard code that this login did not satisfy."
             echo "[Mods]   steamcmd's prompt text mentions email, but it says that for any"
             echo "[Mods]   unauthenticated machine -- it is not evidence of the Guard type."
-            echo "[Mods]   A fresh code is minted per mod when STEAM_2FA_URL is set."
+            echo "[Mods]   A fresh code is minted per mod when STEAM_AUTH is a URL."
         fi
 
         if [ ! -d "${content}/${id}" ]; then
@@ -171,13 +173,19 @@ install_workshop_mods() {
 
     # Never leave a stale one-shot code behind: it cannot work twice, and keeping it would
     # make the next boot look like it had a code when it did not.
-    if [ -f "${GUARD_FILE}" ]; then
+    if [ -f "${GUARD_FILE}" ] && ! is_url "$(tr -d ' \r\n' < "${GUARD_FILE}")"; then
         rm -f "${GUARD_FILE}"
         echo "[Mods] Consumed and removed $(basename "${GUARD_FILE}") (single-use)."
     fi
 }
 
-install_workshop_mods
+# Opt-out via DOWNLOAD_WORKSHOP_MODS rather than by commenting out this call, so a deployed
+# server can turn downloads off from the panel instead of by editing the script.
+if [ "${DOWNLOAD_WORKSHOP_MODS:-1}" = "1" ]; then
+    install_workshop_mods
+else
+    echo "[Mods] DOWNLOAD_WORKSHOP_MODS=0 -- skipping workshop downloads."
+fi
 
 # 0. BattlEye master switch
 #
@@ -350,13 +358,18 @@ done
 echo "[Server-Scripts] Synced admin SteamID(s) to ${ADMINS_TXT} for server-side chat commands."
 
 # 4. Server-Side Custom Init Auto-Installer (sinipelto/dayz-scripts)
+#
+# OFF by default (INSTALL_CUSTOM_INIT=0). This overwrites the ACTIVE mission's init.c, which is
+# destructive to any hand-edited mission -- a backup is taken, but an opt-in switch is the honest
+# default. Set INSTALL_CUSTOM_INIT=1 to enable.
+#
 # Dynamically installs sinipelto/dayz-scripts into the active mission's init.c.
 # If dayz_init_server.c is present, it is used; otherwise setup_vpp.sh fetches the upstream
 # init.c directly via curl from GitHub.
 SINIPELTO_RAW_URL="https://raw.githubusercontent.com/bluscream/pterodactyl-eggs/master/dayz-standalone/dayz_init_server.c"
 UPSTREAM_SINIPELTO_URL="https://raw.githubusercontent.com/sinipelto/dayz-scripts/master/init.c"
 
-if [ -f "${MISSION_INIT}" ]; then
+if [ "${INSTALL_CUSTOM_INIT:-0}" = "1" ] && [ -f "${MISSION_INIT}" ]; then
     SOURCE_INIT=""
     if [ -f "${SERVER_ROOT}/dayz_init_server.c" ]; then
         SOURCE_INIT="${SERVER_ROOT}/dayz_init_server.c"

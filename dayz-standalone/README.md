@@ -46,6 +46,35 @@ When disabled (`1`):
 To get RCON back, set `DISABLE_BATTLEYE=0` and restart. `setup_vpp.sh` restores the stock
 binary from `DayZServer.orig` — no reinstall needed.
 
+## Steam Guard / 2FA
+
+One variable, **`STEAM_AUTH`**, holding either form — the mode is inferred from the value:
+
+| Value | Behaviour |
+| :--- | :--- |
+| `K4J9P` | Literal code. Single-use, ~30 second life. |
+| `https://…` | Endpoint returning a code, **re-minted per workshop mod download**. |
+
+Re-minting per mod is not paranoia: a successful login here does not reliably leave a Steam sentry
+behind — the first mod downloads and every later one hits the Guard prompt again — and a TOTP
+cannot be reused. Any ArchiSteamFarm endpoint works; both the `Authentication` header and
+`?password=` query forms of the IPC secret are sent, so either ASF vintage answers.
+
+`.steam_auth` in the server root is honoured too, is `chmod 600`-ed automatically, and outlives
+the panel variable. Prefer it when the URL embeds a secret: panel variables are stored in the
+database in plain text and readable by any panel admin. A literal code in that file is consumed and
+deleted after use; a URL is kept.
+
+Not needed at all for Experimental (`1042420`), which downloads anonymously.
+
+The variable is named `STEAM_AUTH` to match the de-facto convention: it is what the `games:source`
+and Source-lineage entrypoints already read, and the most common 2FA variable name across the ~466
+eggs surveyed. It accepts a URL as well as a literal code, which those eggs do not.
+
+There used to be a second variable, `STEAM_2FA_URL`, plus `STEAM_GUARD`/`STEAM_GUARD_URL` fallbacks
+and a `.steam_guard_url` file. All removed — one value that can be either thing is less to get
+wrong, and the URL now works at **install** time too, which it previously did not.
+
 ## Files
 - `egg-dayz-standalone.json`: Complete Pterodactyl v2 Egg ready for import.
 - `patch_be.pl`: Binary patcher. Perl, not Python -- the runtime image `ghcr.io/parkervcp/games:dayz` ships `/usr/bin/perl` and has no `python3`.

@@ -1,0 +1,306 @@
+{
+    "_comment": "BattleBit Remastered dedicated server under Wine. Launch arguments are assembled by boot.sh, not the startup line -- see README.md.",
+    "meta": {
+        "version": "PTDL_v2",
+        "update_url": null
+    },
+    "exported_at": "2026-09-13T18:12:26+00:00",
+    "name": "BattleBit Remastered",
+    "author": "bluscreamlp@gmail.com",
+    "description": "BattleBit Remastered dedicated server, running the Windows server build under Wine. The server files live on a beta branch of game appid 671860, so a Steam account that OWNS BattleBit Remastered is required -- there is no anonymous download.",
+    "features": [
+        "steam_disk_space"
+    ],
+    "docker_images": {
+        "Wine (staging)": "ghcr.io/parkervcp/yolks:wine_staging",
+        "Wine (latest)": "ghcr.io/parkervcp/yolks:wine_latest",
+        "Wine (devel)": "ghcr.io/parkervcp/yolks:wine_devel"
+    },
+    "file_denylist": [],
+    "startup": "bash ./boot.sh",
+    "config": {
+        "files": "{}",
+        "startup": "{\"done\":\"Successfully registered to steam servers\"}",
+        "logs": "{}",
+        "stop": "^C"
+    },
+    "scripts": {
+        "installation": {
+            "script": "#!/bin/bash\n# Pterodactyl install script -- BattleBit Remastered dedicated server (Wine)\n#\n# BattleBit has no separate Linux or anonymous server appid: the server binary is delivered\n# through beta branches of the GAME appid (671860), which means an account that OWNS the game.\n# The binary is Windows-only, so steamcmd is told to fetch the Windows platform and the server\n# runs under Wine.\n\nset -e\n\n# Install-time dependencies only -- this runs in a throwaway installer container, so nothing\n# apt-installed here reaches the runtime image. curl only; the previous version used wget for the\n# 2FA fetch, which is not guaranteed to exist in the installer image.\napt -y update\napt -y --no-install-recommends install curl ca-certificates\n\nif [[ -z \"${STEAM_USER}\" ]]; then\n    echo \"INSTALLATION ERROR: STEAM_USER is empty.\"\n    echo \"  BattleBit's server files live on a beta branch of appid ${STEAMCMD_APPID}, so an\"\n    echo \"  account that owns BattleBit Remastered is required. There is no anonymous download.\"\n    exit 1\nfi\nif [[ \"${STEAM_USER}\" == \"anonymous\" ]]; then\n    echo \"WARNING: STEAM_USER is 'anonymous'. The ${STEAM_BRANCH} branch requires game\"\n    echo \"  ownership, so this will almost certainly fail. Continuing in case Valve has\"\n    echo \"  published an anonymous server appid since this egg was written.\"\nfi\n\ncd /tmp\nmkdir -p /mnt/server/steamcmd\n# steamapps must exist up front or steamcmd reports a disk write failure.\nmkdir -p /mnt/server/steamapps\ncurl --fail -sSL -o steamcmd.tar.gz https://steamcdn-a.akamaihd.net/client/installer/steamcmd_linux.tar.gz\ntar -xzf steamcmd.tar.gz -C /mnt/server/steamcmd\ncd /mnt/server/steamcmd\n\n# steamcmd misbehaves otherwise, even as root. Pterodactyl fixes ownership after install.\nchown -R root:root /mnt\n# HOME on the persistent volume deliberately: the Steam sentry written by a successful Guard\n# login (Steam/config/ssfn*) then survives the throwaway installer container, so later\n# reinstalls can often log in with no code at all.\nexport HOME=/mnt/server\n\n# --- Steam Guard / 2FA ---------------------------------------------------------------------\n# STEAM_AUTH holds EITHER a literal 5-character Guard code OR a URL that returns one. One\n# variable, mode inferred from the value.\n#\n#   literal  \"K4J9P\"                                   -- used as-is, single-use\n#   URL      \"https://asf.host/api/bot/x/twoFactor...\"  -- fetched fresh before every attempt\n#\n# A URL is strongly preferable: a TOTP is single-use and lives about 30 seconds, and there is an\n# apt install plus a steamcmd bootstrap ahead of the login, so a hand-pasted literal is a race.\n#\n# The file .steam_auth in the server root is honoured too. Prefer it for a URL that embeds an\n# ASF IPC password -- panel variables are stored in the database in plain text and are visible to\n# any panel admin, whereas the file can be chmod 600 and never leaves the volume.\nGUARD_FILE=\"/mnt/server/.steam_auth\"\n[[ -z \"${STEAM_AUTH}\" && -f \"${GUARD_FILE}\" ]] && STEAM_AUTH=\"$(tr -d ' \\r\\n' < \"${GUARD_FILE}\")\"\n\nis_url() { [[ \"${1}\" =~ ^https?:// ]]; }\n\nmint_2fa_code() {\n    local src=\"${STEAM_AUTH}\"\n    [[ -z \"${src}\" ]] && return 0\n    if ! is_url \"${src}\"; then\n        echo \"${src}\"\n        return 0\n    fi\n    # ArchiSteamFarm's IPC wants its password as an Authentication header on newer builds and as\n    # ?password= on older ones. Sending both means either vintage answers.\n    local ipc_pw=\"\"\n    case \"${src}\" in *password=*) ipc_pw=\"${src##*password=}\"; ipc_pw=\"${ipc_pw%%&*}\" ;; esac\n    local response\n    response=\"$(curl --fail -sSL --max-time 15 -H \"Authentication: ${ipc_pw}\" \"${src}\" 2>/dev/null)\"\n    [[ -z \"${response}\" ]] && response=\"$(curl --fail -sSL --max-time 15 \"${src}\" 2>/dev/null)\"\n    if [[ -z \"${response}\" ]]; then\n        echo \"  2FA endpoint returned nothing (auth rejected or unreachable).\" >&2\n        return 0\n    fi\n    # Most specific first: ASF's {\"Result\":{\"bot\":{\"Result\":\"ABC12\"}}} (last match -- the outer\n    # wrapper reuses the key), then a bare 5-character body, then any uppercase 5-char token.\n    # Step one matters because the generic pattern would happily return a 5-character uppercase\n    # BOT NAME in preference to the code.\n    local code bare\n    code=\"$(echo \"${response}\" | grep -oE '\"Result\"[[:space:]]*:[[:space:]]*\"[A-Za-z0-9]{5}\"' \\\n            | tail -1 | grep -oE '[A-Za-z0-9]{5}\"$' | tr -d '\"')\"\n    if [[ -z \"${code}\" ]]; then\n        bare=\"$(echo \"${response}\" | tr -d ' \\r\\n')\"\n        [[ \"${bare}\" =~ ^[A-Za-z0-9]{5}$ ]] && code=\"${bare}\"\n    fi\n    [[ -z \"${code}\" ]] && code=\"$(echo \"${response}\" | grep -oE '[A-Z0-9]{5}' | head -1)\"\n    echo \"${code}\" | tr '[:lower:]' '[:upper:]'\n}\n\n# --- Download ------------------------------------------------------------------------------\n# @sSteamCmdForcePlatformType windows is unconditional: the only server build is the Windows one,\n# and this egg runs it under Wine. The old egg gated this behind a WINDOWS_INSTALL variable that\n# had no meaningful \"off\" setting.\nsteam_download() {\n    local attempt code log=/tmp/steamcmd.log\n    local -a branch_args=()\n    [[ -n \"${STEAM_BRANCH}\" ]] && branch_args+=(-beta \"${STEAM_BRANCH}\")\n    [[ -n \"${STEAM_BRANCH_PASSWORD}\" ]] && branch_args+=(-betapassword \"${STEAM_BRANCH_PASSWORD}\")\n\n    for attempt in 1 2; do\n        code=\"$(mint_2fa_code)\"\n        if [[ -n \"${code}\" ]]; then\n            echo \"Downloading appid ${STEAMCMD_APPID} (attempt ${attempt}, using a Guard code)...\"\n        else\n            echo \"Downloading appid ${STEAMCMD_APPID} (attempt ${attempt}, no code -- relying on the sentry)...\"\n        fi\n        # Credentials are arguments and never echoed. Unquoted ${code}: steamcmd takes the Guard\n        # code as +login's third positional argument, and an empty value must vanish rather than\n        # become an empty argument. stdin is /dev/null and the call is time-boxed, because when\n        # steamcmd wants a code it was not given it prompts, and would otherwise block forever on\n        # a tty that does not exist.\n        timeout 3600 ./steamcmd.sh +force_install_dir /mnt/server \\\n            +login \"${STEAM_USER}\" \"${STEAM_PASS}\" ${code} \\\n            +@sSteamCmdForcePlatformType windows \\\n            +app_update \"${STEAMCMD_APPID}\" \"${branch_args[@]}\" validate +quit < /dev/null 2>&1 | tee \"${log}\"\n\n        # Success is judged by the app manifest, NOT steamcmd's exit status, which returns\n        # non-zero on perfectly good runs. Note also that a pipeline's status is the LAST\n        # command's -- tee's -- so testing the pipeline directly always reports success.\n        if [[ -f \"/mnt/server/steamapps/appmanifest_${STEAMCMD_APPID}.acf\" ]] \\\n           && ! grep -qiE 'Login Failure|two-factor|Invalid Password|Rate Limit' \"${log}\"; then\n            return 0\n        fi\n        if [[ \"${attempt}\" == \"1\" ]]; then\n            echo \"  Login or download failed.\"\n            if is_url \"${STEAM_AUTH}\"; then\n                # A TOTP only rolls over every 30s, so minting again immediately hands back the\n                # same rejected code. Wait out the window before the retry.\n                echo \"  Waiting 31s for a new TOTP window, then retrying once...\"\n                sleep 31\n            else\n                echo \"  Retrying once. A literal code is single-use, so this only helps if the\"\n                echo \"  first failure was not the code itself.\"\n            fi\n        fi\n    done\n    echo \"FATAL: could not download appid ${STEAMCMD_APPID}.\"\n    echo \"  Check STEAM_USER/STEAM_PASS, that the account owns BattleBit Remastered, that it has\"\n    echo \"  access to the ${STEAM_BRANCH} branch, and that STEAM_AUTH is a valid code or a\"\n    echo \"  reachable endpoint.\"\n    return 1\n}\n\nsteam_download\n\n# Never leave a stale single-use code behind: it cannot work twice, and keeping it makes the next\n# reinstall look like it had a code when it did not. A URL is kept -- it stays valid.\nif [[ -f \"${GUARD_FILE}\" ]] && ! is_url \"$(tr -d ' \\r\\n' < \"${GUARD_FILE}\")\"; then\n    rm -f \"${GUARD_FILE}\"\n    echo \"Consumed and removed .steam_auth (single-use).\"\nfi\n\n# The manifest can exist while the payload is wrong (wrong branch, or a branch the account has no\n# access to, which Steam serves as the base game). Check for the binary itself.\nif [[ ! -f \"/mnt/server/${SERVER_BINARY}\" ]]; then\n    echo \"FATAL: the download completed but /mnt/server/${SERVER_BINARY} is missing.\"\n    echo \"  This usually means the account has no access to the '${STEAM_BRANCH}' branch and\"\n    echo \"  Steam served the base game instead. Refusing to finish a broken install.\"\n    exit 1\nfi\n\n# Steam client libraries, both word sizes -- Wine may load either.\nmkdir -p /mnt/server/.steam/sdk32 /mnt/server/.steam/sdk64\ncp -v linux32/steamclient.so /mnt/server/.steam/sdk32/steamclient.so || true\ncp -v linux64/steamclient.so /mnt/server/.steam/sdk64/steamclient.so || true\n\n# --- Egg companion script -------------------------------------------------------------------\n# Pinned to a ref so reinstalls are reproducible. Bump RAW_REF when boot.sh changes.\nRAW_REF=\"master\"\nRAW_BASE=\"https://raw.githubusercontent.com/bluscream/pterodactyl-eggs/${RAW_REF}/battlebit\"\n\necho \"Fetching boot.sh...\"\n# --fail is mandatory: without it curl exits 0 on a 404 and writes the error page into the file.\ncurl --fail -sSL -o /mnt/server/boot.sh.tmp \"${RAW_BASE}/boot.sh\" || {\n    echo \"FATAL: could not download boot.sh from ${RAW_BASE}\"\n    rm -f /mnt/server/boot.sh.tmp\n    exit 1\n}\nmv /mnt/server/boot.sh.tmp /mnt/server/boot.sh\nchmod +x /mnt/server/boot.sh\n\n# BattlEye-style admin list the game reads at startup.\ntouch /mnt/server/Permissions.txt\n\necho \"-----------------------------------------\"\necho \"Installation completed.\"\necho \"  binary : ${SERVER_BINARY} (Windows, runs under Wine)\"\necho \"  branch : ${STEAM_BRANCH}\"\necho \"-----------------------------------------\"\n",
+            "container": "ghcr.io/parkervcp/installers:debian",
+            "entrypoint": "/bin/bash"
+        }
+    },
+    "variables": [
+        {
+            "name": "[REQUIRED] Steam Username",
+            "description": "A Steam account that OWNS BattleBit Remastered. The server build is only published on beta branches of the game appid, so there is no anonymous download.",
+            "env_variable": "STEAM_USER",
+            "default_value": "",
+            "user_viewable": false,
+            "user_editable": false,
+            "rules": "required|string|max:64",
+            "field_type": "text"
+        },
+        {
+            "name": "[REQUIRED] Steam Password",
+            "description": "Password for the Steam account above. Stored in the panel database in plain text -- as with every Pterodactyl egg, since the panel has no credential store.",
+            "env_variable": "STEAM_PASS",
+            "default_value": "",
+            "user_viewable": false,
+            "user_editable": false,
+            "rules": "required|string",
+            "field_type": "text"
+        },
+        {
+            "name": "Steam Guard Code or 2FA URL",
+            "description": "Steam Guard 2FA, as EITHER a literal 5-character code OR a URL that returns one -- the mode is inferred from the value, so there is one setting and no precedence rule to remember. A URL is strongly preferred: a literal code is single-use and expires in about 30 seconds, while a URL is re-minted before every login and again after the 31-second retry wait. Any ArchiSteamFarm endpoint works, e.g. https://asf.host/api/bot/<bot>/twoFactorAuthentication/token?password=<ipc>, and both the header and query-string forms of the IPC secret are sent. The file .steam_auth in the server root is honoured too and outlives this variable -- prefer it when the URL embeds a secret, since panel variables are readable by any panel admin. A literal code there is consumed after use; a URL is kept.",
+            "env_variable": "STEAM_AUTH",
+            "default_value": "",
+            "user_viewable": true,
+            "user_editable": true,
+            "rules": "nullable|string",
+            "field_type": "text"
+        },
+        {
+            "name": "Server Name",
+            "description": "Server name shown in the in-game server browser. Written into the server config on every boot.",
+            "env_variable": "SERVER_NAME",
+            "default_value": "A Pterodactyl hosted BattleBit Server",
+            "user_viewable": true,
+            "user_editable": true,
+            "rules": "required|string|max:64",
+            "field_type": "text"
+        },
+        {
+            "name": "Max Players",
+            "description": "Player cap. 254 is the engine maximum (127v127, the 'ultra' size).",
+            "env_variable": "MAX_PLAYERS",
+            "default_value": "128",
+            "user_viewable": true,
+            "user_editable": true,
+            "rules": "required|numeric|between:1,254",
+            "field_type": "text"
+        },
+        {
+            "name": "Server Password",
+            "description": "Join password. Leave empty for a public server.",
+            "env_variable": "SERVER_PASSWORD",
+            "default_value": "",
+            "user_viewable": true,
+            "user_editable": true,
+            "rules": "nullable|string|max:64",
+            "field_type": "text"
+        },
+        {
+            "name": "Tickrate (Hz)",
+            "description": "Server tickrate. Higher costs proportionally more CPU.",
+            "env_variable": "SERVER_HZ",
+            "default_value": "60",
+            "user_viewable": true,
+            "user_editable": true,
+            "rules": "required|string|in:60,120,240",
+            "field_type": "text"
+        },
+        {
+            "name": "Max Ping",
+            "description": "Players above this ping (ms) are rejected. 0 disables the check.",
+            "env_variable": "SERVER_MAXPING",
+            "default_value": "500",
+            "user_viewable": true,
+            "user_editable": true,
+            "rules": "required|numeric|between:0,10000",
+            "field_type": "text"
+        },
+        {
+            "name": "Anti-Cheat",
+            "description": "EAC enables Easy Anti-Cheat. None runs without it -- required if the host cannot load the EAC module, at the cost of no cheat protection.",
+            "env_variable": "SERVER_ANTICHEAT",
+            "default_value": "EAC",
+            "user_viewable": true,
+            "user_editable": true,
+            "rules": "required|string|in:EAC,None",
+            "field_type": "text"
+        },
+        {
+            "name": "Voxel Mode",
+            "description": "Enables the destructible-voxel terrain mode.",
+            "env_variable": "SERVER_VOXELMODE",
+            "default_value": "false",
+            "user_viewable": true,
+            "user_editable": true,
+            "rules": "required|string|in:true,false",
+            "field_type": "text"
+        },
+        {
+            "name": "First Map",
+            "description": "Map loaded on startup, e.g. Eduardovo, Azagor, Basra, District, Frugis, Isle, Lonovo, MultuIslands, Namak, OilDunes, River, Salhan, SandySunset, TensaTown, Valley, Wakistan, WineParadise.",
+            "env_variable": "SERVER_FIRSTMAP",
+            "default_value": "Eduardovo",
+            "user_viewable": true,
+            "user_editable": true,
+            "rules": "required|string|max:64",
+            "field_type": "text"
+        },
+        {
+            "name": "First Gamemode",
+            "description": "Gamemode loaded on startup. CONQ conquest, INFCONQ infantry conquest, DOMI domination, RUSH rush, CTF capture the flag, FRONTLINE frontline, ELI elimination.",
+            "env_variable": "SERVER_FIRSTGAMEMODE",
+            "default_value": "CONQ",
+            "user_viewable": true,
+            "user_editable": true,
+            "rules": "required|string|in:CONQ,INFCONQ,DOMI,RUSH,CTF,FRONTLINE,ELI",
+            "field_type": "text"
+        },
+        {
+            "name": "Fixed Map Size",
+            "description": "Locks every map to this size regardless of player count. tiny 8v8, small 16v16, medium 32v32, big 64v64, ultra 127v127.",
+            "env_variable": "SERVER_FIXEDSIZE",
+            "default_value": "medium",
+            "user_viewable": true,
+            "user_editable": true,
+            "rules": "required|string|in:tiny,small,medium,big,ultra",
+            "field_type": "text"
+        },
+        {
+            "name": "First Map Size",
+            "description": "Size used for the startup map, before the server scales with player count.",
+            "env_variable": "SERVER_FIRSTSIZE",
+            "default_value": "medium",
+            "user_viewable": true,
+            "user_editable": true,
+            "rules": "required|string|in:tiny,small,medium,big,ultra",
+            "field_type": "text"
+        },
+        {
+            "name": "Max Map Size",
+            "description": "Upper bound the server will scale a map up to. Must not be smaller than the first size.",
+            "env_variable": "SERVER_MAXSIZE",
+            "default_value": "big",
+            "user_viewable": true,
+            "user_editable": true,
+            "rules": "required|string|in:tiny,small,medium,big,ultra",
+            "field_type": "text"
+        },
+        {
+            "name": "API Endpoint",
+            "description": "host:port of a community server API. Leave empty to run without one -- the flag is then omitted rather than passed empty.",
+            "env_variable": "SERVER_APIENDPOINT",
+            "default_value": "",
+            "user_viewable": true,
+            "user_editable": true,
+            "rules": "nullable|string|max:128",
+            "field_type": "text"
+        },
+        {
+            "name": "API Token",
+            "description": "Token issued by the API above. Required only if that endpoint authenticates. Omitted when empty.",
+            "env_variable": "SERVER_APITOKEN",
+            "default_value": "",
+            "user_viewable": true,
+            "user_editable": true,
+            "rules": "nullable|string|max:128",
+            "field_type": "text"
+        },
+        {
+            "name": "Extra Launch Arguments",
+            "description": "Appended verbatim to the launch command, split on whitespace. Values containing spaces are not supported here.",
+            "env_variable": "STARTUP_PARAMS",
+            "default_value": "",
+            "user_viewable": true,
+            "user_editable": true,
+            "rules": "nullable|string",
+            "field_type": "text"
+        },
+        {
+            "name": "Steam Branch",
+            "description": "community-server is the live branch for public community servers. community-testing tracks the test build and the API test environment -- expect it to break.",
+            "env_variable": "STEAM_BRANCH",
+            "default_value": "community-server",
+            "user_viewable": true,
+            "user_editable": true,
+            "rules": "required|string|in:community-server,community-testing",
+            "field_type": "text"
+        },
+        {
+            "name": "Steam Branch Password",
+            "description": "Only needed if a branch is password protected. Normally empty.",
+            "env_variable": "STEAM_BRANCH_PASSWORD",
+            "default_value": "",
+            "user_viewable": false,
+            "user_editable": false,
+            "rules": "nullable|string",
+            "field_type": "text"
+        },
+        {
+            "name": "[Advanced] Steam App ID",
+            "description": "BattleBit Remastered's game appid. The server build is published on its beta branches; there is no separate server appid.",
+            "env_variable": "STEAMCMD_APPID",
+            "default_value": "671860",
+            "user_viewable": false,
+            "user_editable": false,
+            "rules": "required|numeric|digits_between:1,7",
+            "field_type": "text"
+        },
+        {
+            "name": "[Advanced] Server Binary",
+            "description": "Windows executable launched under Wine. Also checked at install time -- a missing binary means the branch download did not deliver the server build.",
+            "env_variable": "SERVER_BINARY",
+            "default_value": "BattleBit.exe",
+            "user_viewable": false,
+            "user_editable": false,
+            "rules": "required|string",
+            "field_type": "text"
+        },
+        {
+            "name": "[Advanced] WINEARCH",
+            "description": "Wine architecture. Read by the image entrypoint when it CREATES the prefix, so changing it later has no effect unless the prefix is deleted first.",
+            "env_variable": "WINEARCH",
+            "default_value": "win64",
+            "user_viewable": false,
+            "user_editable": false,
+            "rules": "required|string|in:win32,win64",
+            "field_type": "text"
+        },
+        {
+            "name": "[Advanced] WINEPREFIX",
+            "description": "Wine prefix directory, created by the image entrypoint.",
+            "env_variable": "WINEPREFIX",
+            "default_value": "/home/container/.wine",
+            "user_viewable": false,
+            "user_editable": false,
+            "rules": "required|string|max:128",
+            "field_type": "text"
+        },
+        {
+            "name": "[Advanced] WINEDEBUG",
+            "description": "Wine debug channels. -all silences them; set to +all only while diagnosing, it is extremely verbose.",
+            "env_variable": "WINEDEBUG",
+            "default_value": "-all",
+            "user_viewable": false,
+            "user_editable": false,
+            "rules": "required|string|max:64",
+            "field_type": "text"
+        },
+        {
+            "name": "[Advanced] WINEDLLOVERRIDES",
+            "description": "Wine DLL overrides. mscoree and mshtml are disabled so Wine does not prompt to install Mono and Gecko, which the server does not need.",
+            "env_variable": "WINEDLLOVERRIDES",
+            "default_value": "mscoree=n,b;mshtml=n,b",
+            "user_viewable": false,
+            "user_editable": false,
+            "rules": "required|string|max:128",
+            "field_type": "text"
+        },
+        {
+            "name": "[Advanced] Winetricks Verbs",
+            "description": "Verbs the image entrypoint installs into the prefix with winetricks -q before startup. sound=disabled belongs here rather than in a per-boot call, which is what the old startup line did without -q.",
+            "env_variable": "WINETRICKS_RUN",
+            "default_value": "vcrun2013 vcrun2017 corefonts dotnet48 sound=disabled",
+            "user_viewable": false,
+            "user_editable": false,
+            "rules": "required|string|max:256",
+            "field_type": "text"
+        }
+    ]
+}
