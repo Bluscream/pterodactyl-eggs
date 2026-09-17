@@ -8,7 +8,7 @@ my $target = $ARGV[0] // "DayZServer";
 #
 # It used to carry a (commented-out) block that rewrote `battleye = N;` from an ENABLE_BATTLEYE
 # environment variable. That block is gone rather than commented, because a second thing able
-# to decide BattlEye state is worse than no fallback at all: setup_vpp.sh owns that decision
+# to decide BattlEye state is worse than no fallback at all: setup.sh owns that decision
 # via DISABLE_BATTLEYE, and it writes serverDZ.cfg itself. Patching here while some other code
 # path sets battleye = 1 yields a server that is patched but claims BattlEye is on.
 #

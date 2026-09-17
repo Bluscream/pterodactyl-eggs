@@ -319,7 +319,7 @@ if [ "${DISABLE_BATTLEYE}" != "1" ]; then
     RCON_FILE="${BATTLEYE_DIR}/BEServer_x64.cfg"
     RCON_PORT="${RCON_PORT:-2304}"
     cat <<EOF > "${RCON_FILE}"
-// Managed by setup_vpp.sh. DISABLE_BATTLEYE=0 wrote this file.
+// Managed by setup.sh. DISABLE_BATTLEYE=0 wrote this file.
 RConPassword ${ADMIN_PASSWORD}
 RestrictRCon 0
 RConPort ${RCON_PORT}
@@ -328,7 +328,6 @@ EOF
 else
     rm -f "${BATTLEYE_DIR}/BEServer_x64.cfg"
     echo "[RCON] BattlEye disabled (DISABLE_BATTLEYE=1) -- removed BEServer_x64.cfg."
-    echo "[RCON] Admin access: VPPAdminTools in-game and the init.c ! commands."
 fi
 
 # 2.1 Make the resolved passphrase authoritative in serverDZ.cfg
@@ -396,7 +395,7 @@ mkdir -p "${SERVER_PROFILE}"
 SUPERADMIN_IDS="${VPP_SUPERADMINS:-76561198022446661}"
 cat <<'EOF' > "${ADMINS_TXT}"
 // This file contains SteamID64 of all server admins for server-side init.c commands.
-// Managed automatically by setup_vpp.sh. Lines starting with // are comments.
+// Managed automatically by setup.sh. Lines starting with // are comments.
 EOF
 for sid in $(echo "${SUPERADMIN_IDS}" | tr ',' ' '); do
     if [ -n "${sid}" ]; then
