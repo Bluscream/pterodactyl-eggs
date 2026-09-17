@@ -21,8 +21,6 @@ cd /home/container || exit 1
 
 if [ -f ./setup.sh ]; then
     bash ./setup.sh || echo "[boot] WARNING: setup.sh exited non-zero -- continuing to server start."
-elif [ -f ./setup_vpp.sh ]; then
-    bash ./setup_vpp.sh || echo "[boot] WARNING: setup_vpp.sh exited non-zero -- continuing to server start."
 else
     echo "[boot] WARNING: setup.sh missing -- no BattlEye patching, RCON config or init.c install."
 fi
