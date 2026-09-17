@@ -79,4 +79,5 @@ wrong, and the URL now works at **install** time too, which it previously did no
 - `egg-dayz-standalone.json`: Complete Pterodactyl v2 Egg ready for import.
 - `patch_be.pl`: Binary patcher. Perl, not Python -- the runtime image `ghcr.io/parkervcp/games:dayz` ships `/usr/bin/perl` and has no `python3`.
 - `setup.sh`: Automated mod keys installer, BattlEye RCON configuration, and SuperAdmin provisioning script.
+- `cleanup.sh`: Stale log, crash dump, and mod documentation cleanup utility (triggered when `DAYZ_CLEANUP_ON_START=1`).
 - `dayz_init_server.c`: Custom mission init installed over `mpmissions/.../init.c` on first boot (guarded by the `DAYZ_NOBE_CUSTOM_INIT` marker; the original is backed up).

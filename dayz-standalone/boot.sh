@@ -19,6 +19,14 @@ set -u
 
 cd /home/container || exit 1
 
+# Cleanup stale logs and superfluous doc files if requested
+if [ -f ./cleanup.sh ]; then
+    if [ "${DAYZ_CLEANUP_ON_START:-}" = "1" ] || [ "${DAYZ_CLEANUP_ON_START:-}" = "true" ]; then
+        echo "[boot] DAYZ_CLEANUP_ON_START=1 detected: running cleanup..."
+        bash ./cleanup.sh || echo "[boot] WARNING: cleanup.sh exited non-zero -- continuing."
+    fi
+fi
+
 if [ -f ./setup.sh ]; then
     bash ./setup.sh || echo "[boot] WARNING: setup.sh exited non-zero -- continuing to server start."
 else
