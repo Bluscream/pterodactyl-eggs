@@ -166,49 +166,39 @@ install_workshop_mods() {
             echo "[Mods] No Steam Guard code available -- relying on the stored sentry file."
         fi
 
-        local fails=0
+        echo "[Mods] Downloading missing workshop items in a single session: ${missing}..."
+        local cmd_args=(+force_install_dir "${SERVER_ROOT}" +login "${STEAM_USER}" "${STEAM_PASS}")
+        [ -n "${code}" ] && cmd_args+=("${code}")
         for id in ${missing}; do
-            if [ "${fails}" -ge 2 ]; then
-                echo "[Mods] Two consecutive failures -- stopping for this boot (Steam is likely"
-                echo "[Mods]   rate-limiting logins). Remaining mods retry on the next restart."
-                break
-            fi
-            if [ -z "${code}" ] || is_url "${STEAM_AUTH}"; then
-                code="$(steam_guard_code)"
-            fi
-            echo "[Mods] Downloading ${id}..."
-            if [ -x "${STEAMCLI_BIN}" ] || command -v steamcli >/dev/null 2>&1; then
-                local cli_bin="${STEAMCLI_BIN}"
-                [ ! -x "${cli_bin}" ] && cli_bin="steamcli"
-                local auth_flag=()
-                [ -n "${code}" ] && auth_flag=(--auth-code "${code}")
-                timeout 900 "${cli_bin}" cmd workshop "${WORKSHOP_APPID}" "${id}" \
-                    --dir "${SERVER_ROOT}" \
-                    --user "${STEAM_USER}" \
-                    --password "${STEAM_PASS}" \
-                    "${auth_flag[@]}" \
-                    < /dev/null > "${SERVER_ROOT}/.steamcmd_mods.log" 2>&1 || true
-            else
-                timeout 900 "${SERVER_ROOT}/steamcmd/steamcmd.sh" +force_install_dir "${SERVER_ROOT}" \
-                    +login "${STEAM_USER}" "${STEAM_PASS}" ${code} \
-                    +workshop_download_item "${WORKSHOP_APPID}" "${id}" +quit \
-                    < /dev/null > "${SERVER_ROOT}/.steamcmd_mods.log" 2>&1 || true
-            fi
+            cmd_args+=(+workshop_download_item "${WORKSHOP_APPID}" "${id}")
+        done
+        cmd_args+=(+quit)
 
-            if grep -qi "check your email\|Steam Guard code" "${SERVER_ROOT}/.steamcmd_mods.log" 2>/dev/null; then
-                echo "[Mods] Steam asked for a Guard code that this login did not satisfy."
-                echo "[Mods]   steamcmd's prompt text mentions email, but it says that for any"
-                echo "[Mods]   unauthenticated machine -- it is not evidence of the Guard type."
-                echo "[Mods]   A fresh code is minted per mod when STEAM_AUTH is a URL."
-            fi
+        if [ -x "${STEAMCLI_BIN}" ] || command -v steamcli >/dev/null 2>&1; then
+            local cli_bin="${STEAMCLI_BIN}"
+            [ ! -x "${cli_bin}" ] && cli_bin="steamcli"
+            timeout 1800 "${cli_bin}" cmd run -- "${cmd_args[@]}" \
+                < /dev/null > "${SERVER_ROOT}/.steamcmd_mods.log" 2>&1 || true
+        elif [ -f "${SERVER_ROOT}/steamcmd/steamcmd.sh" ]; then
+            timeout 1800 "${SERVER_ROOT}/steamcmd/steamcmd.sh" "${cmd_args[@]}" \
+                < /dev/null > "${SERVER_ROOT}/.steamcmd_mods.log" 2>&1 || true
+        else
+            echo "[Mods] WARNING: Neither steamcli nor steamcmd.sh found -- cannot download mods."
+        fi
 
+        if grep -qi "check your email\|Steam Guard code" "${SERVER_ROOT}/.steamcmd_mods.log" 2>/dev/null; then
+            echo "[Mods] Steam asked for a Guard code that this login did not satisfy."
+            echo "[Mods]   steamcmd's prompt text mentions email, but it says that for any"
+            echo "[Mods]   unauthenticated machine -- it is not evidence of the Guard type."
+        fi
+
+        for id in ${missing}; do
             if [ ! -d "${content}/${id}" ]; then
                 echo "[Mods] FAILED: ${id} did not download. Check STEAM_USER/STEAM_PASS, that the"
                 echo "[Mods]   account owns DayZ, and that Steam Guard is satisfied."
-                fails=$((fails+1))
-                continue
+            else
+                echo "[Mods] Successfully downloaded ${id}."
             fi
-            fails=0
         done
     fi
 
