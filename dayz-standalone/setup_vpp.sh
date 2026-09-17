@@ -23,6 +23,20 @@ MISSION_INIT="${SERVER_ROOT}/mpmissions/${MISSION_NAME}/init.c"
 WORKSHOP_APPID="221100"
 WORKSHOP_COLLECTION_ID="${WORKSHOP_COLLECTION_ID:-3800469441}"
 STEAMCLI_BIN="${SERVER_ROOT}/steamcli"
+STEAMCLI_URL="https://github.com/Bluscream/steam-cli/releases/latest/download/steamcli-linux-amd64"
+
+# On-demand download of steamcli if missing from container
+if [ ! -x "${STEAMCLI_BIN}" ] && ! command -v steamcli >/dev/null 2>&1; then
+    echo "[Setup] steamcli not found; downloading latest binary from GitHub..."
+    if curl --fail -sSL -o "${STEAMCLI_BIN}.tmp" "${STEAMCLI_URL}" 2>/dev/null; then
+        mv "${STEAMCLI_BIN}.tmp" "${STEAMCLI_BIN}"
+        chmod +x "${STEAMCLI_BIN}"
+        echo "[Setup] Successfully downloaded steamcli."
+    else
+        rm -f "${STEAMCLI_BIN}.tmp"
+        echo "[Setup] WARNING: Failed to download steamcli; falling back to legacy tools."
+    fi
+fi
 
 # The value may also live in .steam_auth in the server root, which outlives the panel
 # variable and can be chmod 600 -- worth preferring when the URL embeds an IPC password, since
